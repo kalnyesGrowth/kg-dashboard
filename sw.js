@@ -1,5 +1,5 @@
 const DEV = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
-const CACHE = 'kg-dash-v10';
+const CACHE = 'kg-dash-v11';
 const ASSETS = [
   '/',
   '/index.html',
