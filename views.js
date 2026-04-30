@@ -853,6 +853,31 @@ export async function settingsView(app) {
     </div>
 
     <div class="section">
+      <div class="section-label">Tracker setup</div>
+      <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
+        Paste each client's snippet into their website — just before <code style="font-family:monospace;background:var(--soft-gray);padding:1px 5px;border-radius:4px">&lt;/body&gt;</code>.
+      </div>
+      <div class="card" id="tracker-list">
+        ${clients.map(c => `
+        <div style="padding:14px 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <div class="client-avatar" style="background:${esc(c.color)};width:28px;height:28px;border-radius:7px;font-size:0.6rem;flex-shrink:0">${esc(c.initials)}</div>
+            <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary)">${esc(c.name)}</div>
+            <div style="font-size:0.72rem;color:var(--text-secondary);margin-left:auto">${esc(c.domain || '')}</div>
+          </div>
+          <div style="position:relative">
+            <pre id="snippet-${esc(c.id)}" style="margin:0;background:var(--soft-gray);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font-size:0.68rem;font-family:monospace;color:var(--text-primary);white-space:pre-wrap;word-break:break-all;line-height:1.5;padding-right:72px">&lt;script src="https://project-kday6.vercel.app/tracker/tracker.js"
+  data-client="${esc(c.id)}"&gt;&lt;/script&gt;</pre>
+            <button class="copy-snippet-btn" data-client-id="${esc(c.id)}"
+              style="position:absolute;top:8px;right:8px;background:var(--blue);color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:0.68rem;font-weight:600;cursor:pointer;white-space:nowrap">
+              Copy
+            </button>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>
+
+    <div class="section">
       <div class="section-label">Plan</div>
       <div class="card">
         <div class="table-row">
@@ -914,6 +939,25 @@ export async function settingsView(app) {
         del.disabled = false;
       }
     }
+  });
+
+  document.getElementById('tracker-list').addEventListener('click', e => {
+    const btn = e.target.closest('.copy-snippet-btn');
+    if (!btn) return;
+    const id  = btn.dataset.clientId;
+    const pre = document.getElementById('snippet-' + id);
+    if (!pre) return;
+    navigator.clipboard.writeText(pre.textContent.trim()).then(() => {
+      btn.textContent = 'Copied!';
+      btn.style.background = 'var(--green-light)';
+      setTimeout(() => { btn.textContent = 'Copy'; btn.style.background = 'var(--blue)'; }, 2000);
+    }).catch(() => {
+      const sel = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(pre);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    });
   });
 
   document.getElementById('add-client-btn').addEventListener('click', () => showAddClientModal(app));
