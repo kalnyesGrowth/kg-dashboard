@@ -1,5 +1,5 @@
 // ── Database queries ───────────────────────────────────────────
-import { supabase } from './client.js';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './client.js';
 
 // ── Auth ───────────────────────────────────────────────────────
 export async function signIn(email, password) {
@@ -178,10 +178,28 @@ export async function addClient({ name, domain, color, initials, plan, niche }) 
   return data;
 }
 
-// ── Create client user (auth + user_roles) ─────────────────────
+// ── Create client user via edge function ───────────────────────
 export async function createClientUser(email, password, clientId) {
-  // Uses Supabase Admin API — call this from a server-side edge function in production
-  // For now, create manually in Supabase Auth dashboard and set metadata:
-  // { role: 'client', client_id: '<uuid>' }
-  console.warn('createClientUser: create users manually in Supabase Auth dashboard for now');
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/create-client-user`, {
+    method: 'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+      'apikey':        SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({ email, password, clientId }),
+  });
+
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'Failed to create login');
+  return json; // { userId, email }
+}
+
+// ── Delete a client (rollback on partial failure) ──────────────
+export async function deleteClient(clientId) {
+  const { error } = await supabase.from('clients').delete().eq('id', clientId);
+  if (error) throw error;
 }

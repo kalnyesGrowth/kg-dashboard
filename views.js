@@ -783,6 +783,13 @@ export function settingsView(app) {
 }
 
 // ── Add Client Modal ───────────────────────────────────────────
+const SELECT_STYLE = 'width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.88rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none;-webkit-appearance:none';
+
+function genPassword() {
+  const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+  return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
+
 function showAddClientModal(app) {
   let selectedColor = PRESET_COLORS[0];
 
@@ -795,6 +802,7 @@ function showAddClientModal(app) {
         <button class="modal-close" id="modal-close-btn">✕</button>
       </div>
       <div class="modal-body">
+
         <div class="form-group">
           <label>Business name</label>
           <input id="nc-name" type="text" placeholder="Maria's Beauty Salon" />
@@ -805,14 +813,14 @@ function showAddClientModal(app) {
         </div>
         <div class="form-group">
           <label>Niche</label>
-          <select id="nc-niche" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.88rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none;-webkit-appearance:none">
+          <select id="nc-niche" style="${SELECT_STYLE}">
             <option value="service">Service business</option>
             <option value="ecommerce">E-commerce</option>
           </select>
         </div>
         <div class="form-group">
           <label>Plan</label>
-          <select id="nc-plan" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.88rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none;-webkit-appearance:none">
+          <select id="nc-plan" style="${SELECT_STYLE}">
             <option>Presencia Pro</option>
             <option>Máquina de Clientes</option>
             <option>Sistema Completo</option>
@@ -822,10 +830,34 @@ function showAddClientModal(app) {
           <label>Brand color</label>
           <div class="color-swatches" id="color-swatches">
             ${PRESET_COLORS.map((c, i) => `
-              <button type="button" class="color-swatch${i === 0 ? ' selected' : ''}" data-color="${c}" style="background:${c}" aria-label="${c}"></button>
+              <button type="button" class="color-swatch${i === 0 ? ' selected' : ''}"
+                data-color="${c}" style="background:${c}" aria-label="${c}"></button>
             `).join('')}
           </div>
         </div>
+
+        <div style="margin:18px 0 12px;padding-top:16px;border-top:1px solid var(--divider)">
+          <div style="font-size:0.72rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-secondary);margin-bottom:12px">
+            Client login credentials
+          </div>
+          <div class="form-group">
+            <label>Login email</label>
+            <input id="nc-email" type="email" placeholder="client@theirbusiness.com"
+                   autocomplete="off" inputmode="email" />
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Password</label>
+            <div style="display:flex;gap:8px">
+              <input id="nc-pass" type="text" placeholder="min. 8 characters"
+                     autocomplete="new-password" style="flex:1" />
+              <button type="button" id="gen-pass"
+                style="flex-shrink:0;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.75rem;font-weight:600;color:var(--blue);background:var(--blue-bg);cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent">
+                Generate
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div class="modal-err" id="modal-err"></div>
       </div>
       <div class="modal-footer">
@@ -837,10 +869,15 @@ function showAddClientModal(app) {
   document.body.appendChild(backdrop);
 
   const close = () => backdrop.remove();
-
   backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
   document.getElementById('modal-close-btn').addEventListener('click', close);
   document.getElementById('modal-cancel').addEventListener('click', close);
+
+  document.getElementById('gen-pass').addEventListener('click', () => {
+    const pw = genPassword();
+    document.getElementById('nc-pass').value = pw;
+    document.getElementById('nc-pass').type = 'text';
+  });
 
   document.querySelectorAll('.color-swatch').forEach(sw => {
     sw.addEventListener('click', () => {
@@ -851,34 +888,53 @@ function showAddClientModal(app) {
   });
 
   document.getElementById('modal-submit').addEventListener('click', async () => {
-    const nameEl   = document.getElementById('nc-name');
-    const domainEl = document.getElementById('nc-domain');
-    const nicheEl  = document.getElementById('nc-niche');
-    const planEl   = document.getElementById('nc-plan');
-    const errEl    = document.getElementById('modal-err');
+    const nameEl    = document.getElementById('nc-name');
+    const domainEl  = document.getElementById('nc-domain');
+    const nicheEl   = document.getElementById('nc-niche');
+    const planEl    = document.getElementById('nc-plan');
+    const emailEl   = document.getElementById('nc-email');
+    const passEl    = document.getElementById('nc-pass');
+    const errEl     = document.getElementById('modal-err');
     const submitBtn = document.getElementById('modal-submit');
 
-    const name   = nameEl.value.trim();
-    const domain = domainEl.value.trim().replace(/^https?:\/\//, '');
-    const niche  = nicheEl.value;
-    const plan   = planEl.value;
+    const name     = nameEl.value.trim();
+    const domain   = domainEl.value.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const niche    = nicheEl.value;
+    const plan     = planEl.value;
+    const email    = emailEl.value.trim();
+    const password = passEl.value.trim();
 
     errEl.textContent = '';
-    if (!name)   { errEl.textContent = 'Business name is required.'; nameEl.focus(); return; }
-    if (!domain) { errEl.textContent = 'Domain is required.';        domainEl.focus(); return; }
+    if (!name)     { errEl.textContent = 'Business name is required.';   nameEl.focus();   return; }
+    if (!domain)   { errEl.textContent = 'Domain is required.';          domainEl.focus(); return; }
+    if (!email)    { errEl.textContent = 'Login email is required.';     emailEl.focus();  return; }
+    if (!password) { errEl.textContent = 'Password is required.';        passEl.focus();   return; }
+    if (password.length < 8) { errEl.textContent = 'Password must be at least 8 characters.'; passEl.focus(); return; }
 
-    const auto = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    const autoInitials = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Adding…';
+    submitBtn.textContent = 'Saving…';
 
+    let newClient = null;
     try {
-      await DB.addClient({ name, domain, color: selectedColor, initials: auto, plan, niche });
+      // Step 1 — create client record
+      newClient = await DB.addClient({ name, domain, color: selectedColor, initials: autoInitials, plan, niche });
+
+      // Step 2 — create login via edge function
+      submitBtn.textContent = 'Creating login…';
+      await DB.createClientUser(email, password, newClient.id);
+
       close();
       showToast('Client added ✓');
       location.hash = '#clients';
+
     } catch (e) {
-      errEl.textContent = e.message || 'Could not save. Check your connection.';
+      // If client row was created but login failed, roll back the client row
+      if (newClient) {
+        try { await DB.deleteClient(newClient.id); } catch (_) {}
+      }
+      errEl.textContent = e.message || 'Something went wrong. Please try again.';
       submitBtn.disabled = false;
       submitBtn.textContent = 'Add client';
     }
