@@ -787,7 +787,13 @@ export async function settingsView(app) {
 
   let clients, isReal = true;
   try {
-    clients = await DB.fetchClients();
+    const sbClients = await DB.fetchClients();
+    if (sbClients.length > 0) {
+      clients = sbClients;
+    } else {
+      clients = MOCK_CLIENTS;
+      isReal  = false;
+    }
   } catch (_) {
     clients = MOCK_CLIENTS;
     isReal  = false;
