@@ -122,6 +122,47 @@ export async function fetchRecentEmails(clientId, limit = 5) {
   }));
 }
 
+// ── Live event feed (last N raw events) ───────────────────────
+export async function fetchRecentEvents(clientId, limit = 25) {
+  const { data, error } = await supabase
+    .from('events')
+    .select('event_type, page, payload, ts')
+    .eq('client_id', clientId)
+    .order('ts', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data || [];
+}
+
+// ── Today's live metrics direct from events table ──────────────
+// Used when daily_metrics hasn't rolled up yet (same day activity)
+export async function fetchLiveTodayMetrics(clientId) {
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+
+  const { data: events, error } = await supabase
+    .from('events')
+    .select('event_type, session_id, payload')
+    .eq('client_id', clientId)
+    .gte('ts', startOfDay.toISOString());
+  if (error) throw error;
+
+  const rows        = events || [];
+  const sessions    = new Set(rows.filter(e => e.event_type === 'session_start').map(e => e.session_id)).size;
+  const leads       = rows.filter(e => e.event_type === 'lead').length;
+  const emails      = rows.filter(e => e.event_type === 'email_capture').length;
+  const addToCarts  = rows.filter(e => e.event_type === 'add_to_cart').length;
+  const orderRows   = rows.filter(e => e.event_type === 'order');
+  return {
+    sessions,
+    leads,
+    emails,
+    addToCarts,
+    orders:  orderRows.length,
+    revenue: orderRows.reduce((s, e) => s + Number(e.payload?.value || 0), 0),
+  };
+}
+
 // ── Agency summary (all clients) ───────────────────────────────
 export async function fetchAgencySummary() {
   const { data, error } = await supabase

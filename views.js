@@ -90,6 +90,18 @@ function trendBadge(pct) {
   return `<span class="${up ? 'trend-up' : 'trend-down'}">${up ? '↑' : '↓'} ${Math.abs(pct)}%</span>`;
 }
 
+function eventIcon(type) {
+  return { pageview:'👁', session_start:'🔔', lead:'📩', email_capture:'✉️', add_to_cart:'🛒', order:'💰' }[type] || '📡';
+}
+
+function timeAgo(ts) {
+  const secs = Math.floor((Date.now() - new Date(ts)) / 1000);
+  if (secs < 60)   return secs + 's ago';
+  if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+  if (secs < 86400)return Math.floor(secs / 3600) + 'h ago';
+  return Math.floor(secs / 86400) + 'd ago';
+}
+
 // ── Charts ─────────────────────────────────────────────────────
 const charts = {};
 function destroyChart(id) {
@@ -390,13 +402,14 @@ export function clientSelfView(app, clientId) {
 // ── Shared detail renderer ─────────────────────────────────────
 function renderDetail(app, client, isAgency) {
   let tf   = 'month';
-  let live = null; // { metrics, revenueSeries, recentOrders, recentEmails }
+  let live = null; // { metrics, revenueSeries, recentOrders, recentEmails, recentEvents }
 
   function draw() {
     const metrics  = live?.metrics       || client.metrics;
     const revSer   = live?.revenueSeries  || client.revenueSeries;
-    const orders   = live?.recentOrders   || client.recentOrders;
-    const emails   = live?.recentEmails   || client.recentEmails;
+    const orders       = live?.recentOrders   || client.recentOrders;
+    const emails       = live?.recentEmails   || client.recentEmails;
+    const recentEvents = live?.recentEvents   || [];
 
     destroyChart();
     const m      = metrics;
@@ -512,6 +525,29 @@ function renderDetail(app, client, isAgency) {
       </div>` : ''}
 
       <div class="section">
+        <div class="section-label">Live activity</div>
+        <div class="card">
+          ${recentEvents.length ? recentEvents.map(e => {
+            const label = e.event_type.replace(/_/g, ' ');
+            const page  = e.page ? (e.page.length > 32 ? e.page.slice(0, 32) + '…' : e.page) : '';
+            return `
+            <div class="table-row">
+              <div style="font-size:1rem;flex-shrink:0;width:24px;text-align:center">${eventIcon(e.event_type)}</div>
+              <div class="row-main">
+                <div class="row-name" style="text-transform:capitalize">${esc(label)}</div>
+                ${page ? `<div class="row-sub">${esc(page)}</div>` : ''}
+              </div>
+              <div style="font-size:0.68rem;color:var(--text-secondary);flex-shrink:0;white-space:nowrap">${timeAgo(e.ts)}</div>
+            </div>`;
+          }).join('') : `
+          <div class="empty-state" style="padding:32px 20px">
+            <div class="es-icon">📡</div>
+            <div class="es-text">No events yet — install the tracker snippet below</div>
+          </div>`}
+        </div>
+      </div>
+
+      <div class="section">
         <div class="section-label">Tracker snippet</div>
         <div class="card">
           <div class="table-row" style="flex-direction:column;align-items:flex-start;gap:10px">
@@ -570,17 +606,29 @@ function renderDetail(app, client, isAgency) {
   // Fetch live Supabase data in background
   (async () => {
     try {
-      const [metrics, sw, sm, sa, liveOrders, liveEmails] = await Promise.all([
+      const [metrics, todayLive, sw, sm, sa, liveOrders, liveEmails, recentEvents] = await Promise.all([
         DB.fetchMetricsSummary(client.id),
+        DB.fetchLiveTodayMetrics(client.id),
         DB.fetchRevenueSeries(client.id, 7),
         DB.fetchRevenueSeries(client.id, 30),
         DB.fetchRevenueSeries(client.id, 90),
         DB.fetchRecentOrders(client.id),
         DB.fetchRecentEmails(client.id),
+        DB.fetchRecentEvents(client.id, 25),
       ]);
-      // Guard: only update if this client's view is still shown
       if (!document.querySelector('.client-header-strip')) return;
-      live = { metrics, revenueSeries: { week:sw, month:sm, all:sa }, recentOrders:liveOrders, recentEmails:liveEmails };
+      // Overlay today's numbers with live-computed values (bypass daily rollup lag)
+      const patchedMetrics = { ...metrics };
+      for (const key of ['revenue','sessions','leads','emails','orders','addToCarts']) {
+        patchedMetrics[key] = { ...metrics[key], today: todayLive[key] ?? metrics[key].today };
+      }
+      live = {
+        metrics:      patchedMetrics,
+        revenueSeries:{ week:sw, month:sm, all:sa },
+        recentOrders: liveOrders,
+        recentEmails: liveEmails,
+        recentEvents,
+      };
       draw();
     } catch (_) {}
   })();
