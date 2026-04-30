@@ -72,24 +72,3 @@ export function esc(s) {
     .replace(/'/g, '&#39;');
 }
 
-// ── Bottom nav ─────────────────────────────────────────────────
-export function bottomNavHTML(active) {
-  return `
-    <nav class="bottom-nav">
-      <button class="nav-item${active==='clients'?' active':''}" data-nav="clients">
-        <span>👥</span><span>Clients</span>
-      </button>
-      <button class="nav-item${active==='reports'?' active':''}" data-nav="reports">
-        <span>📊</span><span>Reports</span>
-      </button>
-      <button class="nav-item${active==='settings'?' active':''}" data-nav="settings">
-        <span>⚙️</span><span>Settings</span>
-      </button>
-    </nav>`;
-}
-
-export function wireNav() {
-  document.querySelectorAll('[data-nav]').forEach(btn => {
-    btn.addEventListener('click', () => { location.hash = '#' + btn.dataset.nav; });
-  });
-}

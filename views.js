@@ -1,8 +1,7 @@
 // ── Views ──────────────────────────────────────────────────────
 import { MOCK_CLIENTS, getClient, getAgencySummary, CLIENT_CREDS } from './data.js';
-import { checkLogin, clearSession, bottomNavHTML, wireNav, esc } from './utils.js';
+import { checkLogin, clearSession, esc } from './utils.js';
 
-// Alias for settings view
 const CREDS_MAP = CLIENT_CREDS;
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -30,7 +29,7 @@ function todayStr() {
   return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 }
 
-// Mini SVG sparkline from a revenue series
+// Sparkline from revenue series
 function sparkline(series, color) {
   if (!series || series.length < 2) return '<div style="width:64px;height:24px"></div>';
   const vals = series.map(p => p.revenue);
@@ -43,12 +42,12 @@ function sparkline(series, color) {
     const y = pad + (1 - (v - min) / rng) * (H - pad * 2);
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(' ');
-  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" fill="none" xmlns="http://www.w3.org/2000/svg">
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" fill="none">
     <polyline points="${pts}" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
   </svg>`;
 }
 
-// Trend % comparing second half vs first half of a series
+// Trend % comparing second half vs first half
 function trendPct(series) {
   if (!series || series.length < 4) return null;
   const half   = Math.floor(series.length / 2);
@@ -60,10 +59,8 @@ function trendPct(series) {
 
 function trendBadge(pct) {
   if (pct === null) return '';
-  const up  = pct >= 0;
-  const col = up ? 'var(--green)' : 'var(--red)';
-  const bg  = up ? 'var(--green-bg)' : 'var(--red-bg)';
-  return `<span style="font-size:0.62rem;font-weight:600;color:${col};background:${bg};border-radius:20px;padding:2px 6px;white-space:nowrap">${up ? '↑' : '↓'} ${Math.abs(pct)}%</span>`;
+  const up = pct >= 0;
+  return `<span class="${up ? 'trend-up' : 'trend-down'}">${up ? '↑' : '↓'} ${Math.abs(pct)}%</span>`;
 }
 
 // ── Chart ──────────────────────────────────────────────────────
@@ -80,7 +77,7 @@ function renderChart(canvasId, series, color) {
   if (!canvas) return;
   if (!series || !series.length) {
     const wrap = canvas.closest('.chart-wrap');
-    if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="es-icon">📊</div><div class="es-text">No revenue data yet</div></div>';
+    if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="es-icon">📊</div><div class="es-text">No data yet</div></div>';
     return;
   }
   charts[canvasId] = new Chart(canvas, {
@@ -95,7 +92,7 @@ function renderChart(canvasId, series, color) {
         pointRadius: 0,
         fill: true,
         tension: 0.4,
-      }]
+      }],
     },
     options: {
       responsive: true,
@@ -109,13 +106,93 @@ function renderChart(canvasId, series, color) {
           bodyColor: '#fff',
           padding: 10,
           cornerRadius: 6,
-          callbacks: { label: ctx => ' $' + ctx.parsed.y.toLocaleString() }
-        }
+          callbacks: { label: ctx => ' $' + ctx.parsed.y.toLocaleString() },
+        },
       },
       scales: { x: { display: false }, y: { display: false, beginAtZero: false } },
       interaction: { mode: 'nearest', axis: 'x', intersect: false },
-    }
+    },
   });
+}
+
+// ── Layout builder ─────────────────────────────────────────────
+const HAMBURGER = `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="3" y1="5" x2="17" y2="5"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="15" x2="17" y2="15"/></svg>`;
+const BACK_ARROW = `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="12,4 5,10 12,16"/></svg>`;
+
+function buildLayout({ content, active, title = '', backRoute = null }) {
+  const leftBtn = backRoute
+    ? `<button class="hamburger" id="mobile-back">${BACK_ARROW}</button>`
+    : `<button class="hamburger" id="hamburger">${HAMBURGER}</button>`;
+
+  return `
+    <div class="app-layout">
+      <div class="drawer-overlay" id="drawer-overlay"></div>
+
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-logo">
+          <div class="sidebar-logo-mark">KG</div>
+          <div><div class="sidebar-logo-text">Kalnyesgrowth</div></div>
+        </div>
+
+        <nav class="sidebar-nav">
+          <div class="nav-section-label">Main</div>
+          <button class="nav-link ${active === 'clients'  ? 'active' : ''}" data-nav="clients">
+            <span class="nav-icon">👥</span> Clients
+          </button>
+          <button class="nav-link ${active === 'reports'  ? 'active' : ''}" data-nav="reports">
+            <span class="nav-icon">📊</span> Reports
+          </button>
+          <div class="nav-section-label">Account</div>
+          <button class="nav-link ${active === 'settings' ? 'active' : ''}" data-nav="settings">
+            <span class="nav-icon">⚙️</span> Settings
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="sidebar-user">
+            <div class="sidebar-avatar">KG</div>
+            <div class="sidebar-user-name">Kalnyesgrowth</div>
+          </div>
+          <button class="sidebar-signout" id="sidebar-logout">Sign out</button>
+        </div>
+      </aside>
+
+      <div class="mobile-header">
+        ${leftBtn}
+        <div style="flex:1;font-size:0.85rem;font-weight:700;color:rgba(255,255,255,0.9);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:-0.01em">
+          ${esc(title)}
+        </div>
+        <div class="mobile-actions">
+          <button class="mobile-icon-btn" id="mobile-logout" title="Sign out">⏻</button>
+        </div>
+      </div>
+
+      <main class="main-content">
+        ${content}
+      </main>
+    </div>`;
+}
+
+function wireLayout(appEl, backRoute = null) {
+  const sidebar   = document.getElementById('sidebar');
+  const overlay   = document.getElementById('drawer-overlay');
+  const hamburger = document.getElementById('hamburger');
+  const backBtn   = document.getElementById('mobile-back');
+  const logout    = () => clearSession().then(() => loginView(appEl));
+
+  const open  = () => { sidebar?.classList.add('open');    overlay?.classList.add('visible'); };
+  const close = () => { sidebar?.classList.remove('open'); overlay?.classList.remove('visible'); };
+
+  hamburger?.addEventListener('click', open);
+  overlay?.addEventListener('click', close);
+  backBtn?.addEventListener('click', () => { location.hash = backRoute; });
+
+  document.querySelectorAll('[data-nav]').forEach(btn =>
+    btn.addEventListener('click', () => { close(); location.hash = '#' + btn.dataset.nav; })
+  );
+
+  document.getElementById('sidebar-logout')?.addEventListener('click', logout);
+  document.getElementById('mobile-logout')?.addEventListener('click', logout);
 }
 
 // ── Login ──────────────────────────────────────────────────────
@@ -123,8 +200,11 @@ export function loginView(app) {
   destroyChart();
   app.innerHTML = `
     <div class="login-page">
-      <div class="login-logo">Kalnyesgrowth</div>
-      <div class="login-sub">Agency Dashboard</div>
+      <div class="login-brand">
+        <div class="login-brandmark">KG</div>
+        <div class="login-brand-name">Kalnyesgrowth</div>
+        <div class="login-brand-sub">Agency Dashboard</div>
+      </div>
       <div class="login-card">
         <h2>Sign in</h2>
         <div class="form-group">
@@ -180,21 +260,18 @@ export function loginView(app) {
 // ── Agency: Clients overview ───────────────────────────────────
 export function clientsView(app) {
   destroyChart();
-  const s = getAgencySummary();
+  const s             = getAgencySummary();
   const totalSessions = MOCK_CLIENTS.reduce((acc, c) => acc + c.metrics.sessions.month, 0);
   const totalLeads    = MOCK_CLIENTS.reduce((acc, c) => acc + c.metrics.leads.month + c.metrics.emails.month, 0);
 
-  app.innerHTML = `
-    <div class="page">
-      <div class="topbar">
-        <div style="flex:1"><div class="topbar-title">KG Dashboard</div></div>
-        <button class="logout-btn" id="logout-btn" title="Sign out">⏻</button>
-      </div>
-
-      <div class="greeting-bar">
+  app.innerHTML = buildLayout({
+    active: 'clients',
+    title:  'Clients',
+    content: `
+      <div class="page-topbar">
         <div>
-          <div class="greeting-text">${esc(greeting())}, Kalnyesgrowth 👋</div>
-          <div class="greeting-date">${esc(todayStr())}</div>
+          <div class="page-topbar-title">${esc(greeting())}, Kalnyesgrowth</div>
+          <div class="greeting-date" style="margin-top:2px">${esc(todayStr())}</div>
         </div>
       </div>
 
@@ -217,45 +294,44 @@ export function clientsView(app) {
         </div>
       </div>
 
-      <div class="section" style="padding-top:16px">
-        <div class="section-title">Your clients</div>
-        <div class="client-list">
-          ${MOCK_CLIENTS.map(c => {
-            const hasRev  = c.metrics.revenue.month > 0;
-            const val     = hasRev ? fmt(c.metrics.revenue.month) : num(c.metrics.leads.month + c.metrics.emails.month);
-            const lbl     = hasRev ? 'rev / mo' : 'leads / mo';
-            const series  = c.revenueSeries.month;
-            const pct     = trendPct(series);
-            const spark   = hasRev ? sparkline(series, c.color) : '';
-            return `
-            <div class="client-row" data-id="${esc(c.id)}">
-              <div class="client-avatar" style="background:${esc(c.color)}">${esc(c.initials)}</div>
-              <div class="client-info">
-                <div class="client-name">${esc(c.name)}</div>
-                <div class="client-meta"><span class="status-dot"></span>${esc(c.domain)}</div>
-                <div style="margin-top:3px">${trendBadge(pct)}</div>
-              </div>
-              ${hasRev ? `<div style="flex-shrink:0;padding:0 6px">${spark}</div>` : ''}
-              <div class="client-right">
-                <div class="cr-val">${esc(val)}</div>
-                <div class="cr-label">${esc(lbl)}</div>
-              </div>
-              <div class="row-arrow">›</div>
-            </div>`;
-          }).join('')}
+      <div class="section">
+        <div class="section-label">Your clients</div>
+        <div class="card">
+          <div class="client-list">
+            ${MOCK_CLIENTS.map(c => {
+              const hasRev = c.metrics.revenue.month > 0;
+              const val    = hasRev ? fmt(c.metrics.revenue.month) : num(c.metrics.leads.month + c.metrics.emails.month);
+              const lbl    = hasRev ? 'rev / mo' : 'leads / mo';
+              const series = c.revenueSeries.month;
+              const pct    = trendPct(series);
+              const spark  = hasRev ? sparkline(series, c.color) : '';
+              return `
+              <div class="client-row" data-id="${esc(c.id)}">
+                <div class="client-avatar" style="background:${esc(c.color)}">${esc(c.initials)}</div>
+                <div class="client-info">
+                  <div class="client-name">${esc(c.name)}</div>
+                  <div class="client-meta"><span class="status-dot"></span>${esc(c.domain)}</div>
+                  <div style="margin-top:3px">${trendBadge(pct)}</div>
+                </div>
+                ${hasRev ? `<div style="flex-shrink:0;padding:0 4px">${spark}</div>` : ''}
+                <div class="client-right">
+                  <div class="cr-val">${esc(val)}</div>
+                  <div class="cr-label">${esc(lbl)}</div>
+                </div>
+                <div class="row-arrow">›</div>
+              </div>`;
+            }).join('')}
+          </div>
         </div>
       </div>
-      <div class="section-spacer"></div>
-    </div>
-    ${bottomNavHTML('clients')}`;
+      <div class="page-spacer"></div>
+    `,
+  });
 
+  wireLayout(app);
   document.querySelectorAll('.client-row').forEach(row =>
     row.addEventListener('click', () => location.hash = '#client/' + row.dataset.id)
   );
-  document.getElementById('logout-btn').addEventListener('click', () => {
-    clearSession().then(() => loginView(app));
-  });
-  wireNav();
 }
 
 // ── Agency: Client detail ──────────────────────────────────────
@@ -278,133 +354,141 @@ function renderDetail(app, client, isAgency) {
 
   function draw() {
     destroyChart();
-    const m      = client.metrics;
-    const isEcom = client.niche === 'ecommerce';
-    const series = client.revenueSeries[tf === 'today' ? 'week' : tf] || [];
-    const hasRev = m.revenue[tf] > 0;
+    const m        = client.metrics;
+    const isEcom   = client.niche === 'ecommerce';
+    const series   = client.revenueSeries[tf === 'today' ? 'week' : tf] || [];
+    const hasRev   = m.revenue[tf] > 0;
     const convBase = isEcom ? m.orders[tf] : m.leads[tf];
-    const conv = m.sessions[tf] > 0 && convBase > 0
+    const conv     = m.sessions[tf] > 0 && convBase > 0
       ? ((convBase / m.sessions[tf]) * 100).toFixed(1) + '%' : '—';
 
-    app.innerHTML = `
-      <div class="page">
-        <div class="topbar">
-          ${isAgency ? `<button class="topbar-back" id="back-btn">‹</button>` : ''}
-          <div style="flex:1">
-            <div class="topbar-title">${esc(client.name)}</div>
-            <div class="topbar-sub">${esc(client.domain)}</div>
-          </div>
-          ${!isAgency ? `<button class="logout-btn" id="logout-btn">⏻</button>` : ''}
+    const innerContent = `
+      <div class="client-header-strip">
+        <div class="chs-avatar" style="background:${esc(client.color)}">${esc(client.initials)}</div>
+        <div>
+          <div class="chs-name">${esc(client.name)}</div>
+          <div class="chs-domain">${esc(client.domain)}</div>
         </div>
+        <div class="chs-plan">${esc(client.plan)}</div>
+      </div>
 
-        <div class="client-header-strip">
-          <div class="chs-avatar" style="background:${esc(client.color)}">${esc(client.initials)}</div>
-          <div>
-            <div class="chs-name">${esc(client.name)}</div>
-            <div class="chs-domain">${esc(client.domain)}</div>
-          </div>
-          <div class="chs-plan">${esc(client.plan)}</div>
-        </div>
+      <div class="tf-row">
+        ${['today','week','month','all'].map(t => `
+          <button class="tf-btn${tf === t ? ' active' : ''}" data-tf="${t}">
+            ${t === 'today' ? 'Today' : t === 'week' ? 'Week' : t === 'month' ? 'Month' : 'All'}
+          </button>`).join('')}
+      </div>
 
-        <div class="tf-row">
-          ${['today','week','month','all'].map(t => `
-            <button class="tf-btn${tf===t?' active':''}" data-tf="${t}">
-              ${t === 'today' ? 'Today' : t === 'week' ? 'Week' : t === 'month' ? 'Month' : 'All'}
-            </button>`).join('')}
-        </div>
-
-        ${series.length > 0 || hasRev ? `
-        <div class="section" style="padding-top:12px">
-          <div class="chart-card">
+      ${series.length > 0 || hasRev ? `
+      <div class="section">
+        <div class="card">
+          <div class="chart-card-inner">
             <div class="chart-top">
               <div>
-                <div class="chart-label">Revenue</div>
+                <div class="chart-eyebrow">Revenue</div>
                 <div class="chart-amount">${esc(fmt(m.revenue[tf]))}</div>
               </div>
               <div class="chart-period">${esc(tfLabel(tf))}</div>
             </div>
             <div class="chart-wrap"><canvas id="rev-chart"></canvas></div>
           </div>
-        </div>` : ''}
+        </div>
+      </div>` : ''}
 
-        <div class="section" style="padding-top:12px">
-          <div class="section-title">Performance · ${esc(tfLabel(tf))}</div>
-          <div class="metrics-grid">
-            <div class="metric-card${hasRev ? ' featured' : ''}">
-              <div class="m-label">💰 Revenue</div>
-              <div class="m-value">${esc(fmt(m.revenue[tf]))}</div>
-            </div>
-            <div class="metric-card">
-              <div class="m-label">👁 Sessions</div>
-              <div class="m-value">${esc(num(m.sessions[tf]))}</div>
-            </div>
-            <div class="metric-card">
-              <div class="m-label">${isEcom ? '🛒 Orders' : '📩 Leads'}</div>
-              <div class="m-value">${isEcom ? esc(num(m.orders[tf])) : esc(num(m.leads[tf]))}</div>
-            </div>
-            <div class="metric-card">
-              <div class="m-label">📧 Emails</div>
-              <div class="m-value">${esc(num(m.emails[tf]))}</div>
-            </div>
-            ${isEcom ? `
-            <div class="metric-card">
-              <div class="m-label">🛍️ Add to cart</div>
-              <div class="m-value">${esc(num(m.addToCarts[tf]))}</div>
-            </div>` : `
-            <div class="metric-card">
-              <div class="m-label">🎯 Total leads</div>
-              <div class="m-value">${esc(num(m.leads[tf] + m.emails[tf]))}</div>
-            </div>`}
-            <div class="metric-card">
-              <div class="m-label">📈 Conv. rate</div>
-              <div class="m-value">${esc(conv)}</div>
-            </div>
+      <div class="section">
+        <div class="section-label">Performance · ${esc(tfLabel(tf))}</div>
+        <div class="metrics-grid">
+          <div class="metric-card${hasRev ? ' featured' : ''}">
+            <div class="m-label">💰 Revenue</div>
+            <div class="m-value">${esc(fmt(m.revenue[tf]))}</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-label">👁 Sessions</div>
+            <div class="m-value">${esc(num(m.sessions[tf]))}</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-label">${isEcom ? '🛒 Orders' : '📩 Leads'}</div>
+            <div class="m-value">${isEcom ? esc(num(m.orders[tf])) : esc(num(m.leads[tf]))}</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-label">📧 Emails</div>
+            <div class="m-value">${esc(num(m.emails[tf]))}</div>
+          </div>
+          ${isEcom ? `
+          <div class="metric-card">
+            <div class="m-label">🛍️ Add to cart</div>
+            <div class="m-value">${esc(num(m.addToCarts[tf]))}</div>
+          </div>` : `
+          <div class="metric-card">
+            <div class="m-label">🎯 Total leads</div>
+            <div class="m-value">${esc(num(m.leads[tf] + m.emails[tf]))}</div>
+          </div>`}
+          <div class="metric-card">
+            <div class="m-label">📈 Conv. rate</div>
+            <div class="m-value">${esc(conv)}</div>
           </div>
         </div>
-
-        ${client.recentOrders.length ? `
-        <div class="section" style="padding-top:12px">
-          <div class="section-title">Recent orders</div>
-          <div class="table-card">
-            ${client.recentOrders.map(o => `
-              <div class="table-row">
-                <div class="row-ava">${esc(initials(o.customer))}</div>
-                <div class="row-main">
-                  <div class="row-name">${esc(o.customer)}</div>
-                  <div class="row-sub">${esc(o.id)} · ${esc(o.date)}</div>
-                </div>
-                <div class="row-right">
-                  <div class="row-amount">$${esc(String(o.amount))}</div>
-                  <span class="badge ${esc(o.status)}">${esc(o.status)}</span>
-                </div>
-              </div>`).join('')}
-          </div>
-        </div>` : ''}
-
-        ${client.recentEmails.length ? `
-        <div class="section" style="padding-top:12px">
-          <div class="section-title">Email captures</div>
-          <div class="table-card">
-            ${client.recentEmails.map(e => `
-              <div class="table-row">
-                <div class="email-ico">✉️</div>
-                <div class="row-main">
-                  <div class="row-name">${esc(e.email)}</div>
-                  <div class="row-sub">${esc(e.source)} · ${esc(e.date)}</div>
-                </div>
-              </div>`).join('')}
-          </div>
-        </div>` : ''}
-
-        <div class="section-spacer"></div>
       </div>
-      ${isAgency ? bottomNavHTML('clients') : ''}`;
+
+      ${client.recentOrders.length ? `
+      <div class="section">
+        <div class="section-label">Recent orders</div>
+        <div class="card">
+          ${client.recentOrders.map(o => `
+            <div class="table-row">
+              <div class="row-ava">${esc(initials(o.customer))}</div>
+              <div class="row-main">
+                <div class="row-name">${esc(o.customer)}</div>
+                <div class="row-sub">${esc(o.id)} · ${esc(o.date)}</div>
+              </div>
+              <div class="row-right">
+                <div class="row-amount">$${esc(String(o.amount))}</div>
+                <span class="badge ${esc(o.status)}">${esc(o.status)}</span>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>` : ''}
+
+      ${client.recentEmails.length ? `
+      <div class="section">
+        <div class="section-label">Email captures</div>
+        <div class="card">
+          ${client.recentEmails.map(e => `
+            <div class="table-row">
+              <div style="font-size:1.1rem;flex-shrink:0">✉️</div>
+              <div class="row-main">
+                <div class="row-name">${esc(e.email)}</div>
+                <div class="row-sub">${esc(e.source)} · ${esc(e.date)}</div>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>` : ''}
+
+      <div class="page-spacer"></div>
+    `;
 
     if (isAgency) {
-      document.getElementById('back-btn').addEventListener('click', () => location.hash = '#clients');
-      wireNav();
+      app.innerHTML = buildLayout({
+        active:    'clients',
+        title:     client.name,
+        backRoute: '#clients',
+        content:   innerContent,
+      });
+      wireLayout(app, '#clients');
     } else {
-      document.getElementById('logout-btn').addEventListener('click', () => {
+      // Client self-view — fixed top bar, no sidebar
+      app.innerHTML = `
+        <div style="min-height:100dvh;background:var(--soft-gray)">
+          <div style="height:56px;background:var(--sidebar-bg);display:flex;align-items:center;padding:0 12px;gap:10px;position:fixed;top:0;left:0;right:0;z-index:200">
+            <div class="sidebar-avatar">${esc(client.initials)}</div>
+            <div style="flex:1;font-size:0.85rem;font-weight:700;color:rgba(255,255,255,0.9);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+              ${esc(client.name)}
+            </div>
+            <button class="mobile-icon-btn" id="cl-logout" title="Sign out">⏻</button>
+          </div>
+          <div style="padding-top:56px">${innerContent}</div>
+        </div>`;
+      document.getElementById('cl-logout').addEventListener('click', () => {
         clearSession().then(() => loginView(app));
       });
     }
@@ -431,53 +515,53 @@ export function reportsView(app) {
     destroyChart();
     const tfKey = tf === 'today' ? 'week' : tf;
 
-    // Aggregate combined revenue series across ecommerce clients
     const ecomClients = MOCK_CLIENTS.filter(c => c.niche === 'ecommerce' && c.revenueSeries[tfKey]?.length);
     let combinedSeries = [];
     if (ecomClients.length) {
       const base = ecomClients[0].revenueSeries[tfKey];
       combinedSeries = base.map((pt, i) => ({
-        date: pt.date,
+        date:    pt.date,
         revenue: ecomClients.reduce((s, c) => s + (c.revenueSeries[tfKey][i]?.revenue || 0), 0),
       }));
     }
 
-    const totalRev     = MOCK_CLIENTS.reduce((s, c) => s + c.metrics.revenue[tf], 0);
-    const totalSess    = MOCK_CLIENTS.reduce((s, c) => s + c.metrics.sessions[tf], 0);
-    const totalLeads   = MOCK_CLIENTS.reduce((s, c) => s + c.metrics.leads[tf] + c.metrics.emails[tf], 0);
-    const totalOrders  = MOCK_CLIENTS.reduce((s, c) => s + c.metrics.orders[tf], 0);
+    const totalRev    = MOCK_CLIENTS.reduce((s, c) => s + c.metrics.revenue[tf], 0);
+    const totalSess   = MOCK_CLIENTS.reduce((s, c) => s + c.metrics.sessions[tf], 0);
+    const totalLeads  = MOCK_CLIENTS.reduce((s, c) => s + c.metrics.leads[tf] + c.metrics.emails[tf], 0);
+    const totalOrders = MOCK_CLIENTS.reduce((s, c) => s + c.metrics.orders[tf], 0);
 
-    app.innerHTML = `
-      <div class="page">
-        <div class="topbar">
-          <div style="flex:1"><div class="topbar-title">Reports</div></div>
-          <button class="logout-btn" id="logout-btn">⏻</button>
+    app.innerHTML = buildLayout({
+      active: 'reports',
+      title:  'Reports',
+      content: `
+        <div class="page-topbar">
+          <div class="page-topbar-title">Reports</div>
         </div>
 
-        <div class="tf-row">
+        <div class="tf-row" style="padding-top:16px">
           ${['today','week','month','all'].map(t => `
-            <button class="tf-btn${tf===t?' active':''}" data-tf="${t}">
-              ${t==='today'?'Today':t==='week'?'Week':t==='month'?'Month':'All'}
+            <button class="tf-btn${tf === t ? ' active' : ''}" data-tf="${t}">
+              ${t === 'today' ? 'Today' : t === 'week' ? 'Week' : t === 'month' ? 'Month' : 'All'}
             </button>`).join('')}
         </div>
 
-        <!-- Combined revenue chart -->
-        <div class="section" style="padding-top:12px">
-          <div class="chart-card">
-            <div class="chart-top">
-              <div>
-                <div class="chart-label">Total Revenue</div>
-                <div class="chart-amount">${esc(fmt(totalRev))}</div>
+        <div class="section">
+          <div class="card">
+            <div class="chart-card-inner">
+              <div class="chart-top">
+                <div>
+                  <div class="chart-eyebrow">Total Revenue</div>
+                  <div class="chart-amount">${esc(fmt(totalRev))}</div>
+                </div>
+                <div class="chart-period">${esc(tfLabel(tf))}</div>
               </div>
-              <div class="chart-period">${esc(tfLabel(tf))}</div>
+              <div class="chart-wrap"><canvas id="report-chart"></canvas></div>
             </div>
-            <div class="chart-wrap"><canvas id="report-chart"></canvas></div>
           </div>
         </div>
 
-        <!-- Summary stats -->
-        <div class="section" style="padding-top:12px">
-          <div class="section-title">All clients · ${esc(tfLabel(tf))}</div>
+        <div class="section">
+          <div class="section-label">All clients · ${esc(tfLabel(tf))}</div>
           <div class="metrics-grid">
             <div class="metric-card featured">
               <div class="m-label">💰 Revenue</div>
@@ -498,10 +582,9 @@ export function reportsView(app) {
           </div>
         </div>
 
-        <!-- Per-client breakdown -->
-        <div class="section" style="padding-top:12px">
-          <div class="section-title">Client breakdown</div>
-          <div class="table-card">
+        <div class="section">
+          <div class="section-label">Client breakdown</div>
+          <div class="card">
             ${MOCK_CLIENTS.map(c => {
               const rev   = c.metrics.revenue[tf];
               const leads = c.metrics.leads[tf] + c.metrics.emails[tf];
@@ -509,7 +592,7 @@ export function reportsView(app) {
               const pct   = trendPct(c.revenueSeries.month);
               return `
               <div class="table-row" style="cursor:pointer" data-id="${esc(c.id)}">
-                <div class="client-avatar" style="background:${esc(c.color)};width:32px;height:32px;border-radius:6px;font-size:0.65rem">${esc(c.initials)}</div>
+                <div class="client-avatar" style="background:${esc(c.color)};width:32px;height:32px;border-radius:8px;font-size:0.65rem">${esc(c.initials)}</div>
                 <div class="row-main">
                   <div class="row-name">${esc(c.name)}</div>
                   <div class="row-sub">${esc(num(sess))} sessions · ${esc(num(leads))} leads</div>
@@ -523,9 +606,11 @@ export function reportsView(app) {
           </div>
         </div>
 
-        <div class="section-spacer"></div>
-      </div>
-      ${bottomNavHTML('reports')}`;
+        <div class="page-spacer"></div>
+      `,
+    });
+
+    wireLayout(app);
 
     document.querySelectorAll('.tf-btn').forEach(btn =>
       btn.addEventListener('click', () => { tf = btn.dataset.tf; draw(); })
@@ -533,14 +618,11 @@ export function reportsView(app) {
     document.querySelectorAll('[data-id]').forEach(row =>
       row.addEventListener('click', () => location.hash = '#client/' + row.dataset.id)
     );
-    document.getElementById('logout-btn').addEventListener('click', () => {
-      clearSession().then(() => loginView(app));
-    });
-    wireNav();
 
     requestAnimationFrame(() => {
-      if (combinedSeries.length) renderChart('report-chart', combinedSeries, '#008060');
-      else {
+      if (combinedSeries.length) {
+        renderChart('report-chart', combinedSeries, '#0064E0');
+      } else {
         const wrap = document.querySelector('.chart-wrap');
         if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="es-icon">📊</div><div class="es-text">No revenue data for this period</div></div>';
       }
@@ -553,25 +635,24 @@ export function reportsView(app) {
 // ── Settings View ──────────────────────────────────────────────
 export function settingsView(app) {
   destroyChart();
-  const { CLIENT_CREDS, AGENCY_CREDS } = window.__kg_creds || {};
 
-  app.innerHTML = `
-    <div class="page">
-      <div class="topbar">
-        <div style="flex:1"><div class="topbar-title">Settings</div></div>
-        <button class="logout-btn" id="logout-btn">⏻</button>
+  app.innerHTML = buildLayout({
+    active: 'settings',
+    title:  'Settings',
+    content: `
+      <div class="page-topbar">
+        <div class="page-topbar-title">Settings</div>
       </div>
 
-      <!-- Agency account -->
-      <div class="section" style="padding-top:16px">
-        <div class="section-title">Agency account</div>
-        <div class="table-card">
+      <div class="section">
+        <div class="section-label">Agency account</div>
+        <div class="card">
           <div class="table-row">
             <div class="row-main">
               <div class="row-name">Kalnyesgrowth</div>
               <div class="row-sub">Agency owner</div>
             </div>
-            <div class="row-right" style="font-size:0.72rem;color:var(--green);font-weight:600">Active</div>
+            <div style="font-size:0.72rem;color:var(--green-light);font-weight:600;flex-shrink:0">Active</div>
           </div>
           <div class="table-row">
             <div class="row-main">
@@ -582,13 +663,12 @@ export function settingsView(app) {
         </div>
       </div>
 
-      <!-- Client logins -->
-      <div class="section" style="padding-top:12px">
-        <div class="section-title">Client login credentials</div>
-        <div class="table-card">
+      <div class="section">
+        <div class="section-label">Client login credentials</div>
+        <div class="card">
           ${MOCK_CLIENTS.map(c => `
             <div class="table-row">
-              <div class="client-avatar" style="background:${esc(c.color)};width:32px;height:32px;border-radius:6px;font-size:0.65rem;flex-shrink:0">${esc(c.initials)}</div>
+              <div class="client-avatar" style="background:${esc(c.color)};width:32px;height:32px;border-radius:8px;font-size:0.65rem;flex-shrink:0">${esc(c.initials)}</div>
               <div class="row-main">
                 <div class="row-name">${esc(c.name)}</div>
                 <div class="row-sub cred-email" data-id="${esc(c.id)}" style="cursor:pointer;color:var(--blue)">Tap to reveal login</div>
@@ -597,42 +677,53 @@ export function settingsView(app) {
         </div>
       </div>
 
-      <!-- Plan info -->
-      <div class="section" style="padding-top:12px">
-        <div class="section-title">Plan</div>
-        <div class="table-card">
+      <div class="section">
+        <div class="section-label">Plan</div>
+        <div class="card">
           <div class="table-row">
             <div class="row-main">
               <div class="row-name">Agency Dashboard v1</div>
-              <div class="row-sub">Mock data · Supabase coming in v2</div>
+              <div class="row-sub">5 clients · live Supabase tracking</div>
             </div>
-            <div style="font-size:0.7rem;color:var(--text-xsoft);flex-shrink:0">v1.0</div>
+            <div style="font-size:0.7rem;color:var(--text-secondary);flex-shrink:0">v1.0</div>
           </div>
           <div class="table-row">
             <div class="row-main">
-              <div class="row-name">5 active clients</div>
-              <div class="row-sub">$200/mo per client when billing goes live</div>
+              <div class="row-name">$200 / mo per client</div>
+              <div class="row-sub">Billing via Stripe — coming soon</div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Sign out -->
-      <div class="section" style="padding-top:12px">
-        <div class="table-card">
-          <div class="table-row" id="signout-row" style="cursor:pointer">
+      <div class="section">
+        <div class="section-label">Tracker snippet</div>
+        <div class="card">
+          <div class="table-row">
             <div class="row-main">
-              <div class="row-name" style="color:var(--red)">Sign out</div>
+              <div class="row-name" style="font-family:monospace;font-size:0.7rem;word-break:break-all;color:var(--text-secondary);line-height:1.5">
+                &lt;script src="https://project-kday6.vercel.app/tracker/tracker.js" data-client="CLIENT_ID"&gt;&lt;/script&gt;
+              </div>
+              <div class="row-sub" style="margin-top:4px">Embed on every client site to track events</div>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="section-spacer"></div>
-    </div>
-    ${bottomNavHTML('settings')}`;
+      <div class="section">
+        <div class="card">
+          <div class="table-row" id="signout-row" style="cursor:pointer">
+            <div class="row-name" style="color:var(--red)">Sign out</div>
+          </div>
+        </div>
+      </div>
 
-  // Reveal credentials on tap
+      <div class="page-spacer"></div>
+    `,
+  });
+
+  wireLayout(app);
+
   document.querySelectorAll('.cred-email').forEach(el => {
     el.addEventListener('click', () => {
       const id    = el.dataset.id;
@@ -648,7 +739,7 @@ export function settingsView(app) {
     });
   });
 
-  document.getElementById('logout-btn').addEventListener('click', () => { clearSession().then(() => loginView(app)); });
-  document.getElementById('signout-row').addEventListener('click', () => { clearSession().then(() => loginView(app)); });
-  wireNav();
+  document.getElementById('signout-row').addEventListener('click', () => {
+    clearSession().then(() => loginView(app));
+  });
 }
