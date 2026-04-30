@@ -102,6 +102,17 @@ function timeAgo(ts) {
   return Math.floor(secs / 86400) + 'd ago';
 }
 
+function mergeSeries(seriesArrays) {
+  const map = {}, order = [];
+  for (const series of seriesArrays) {
+    for (const pt of series) {
+      if (!(pt.date in map)) { map[pt.date] = 0; order.push(pt.date); }
+      map[pt.date] += pt.revenue;
+    }
+  }
+  return order.map(date => ({ date, revenue: map[date] }));
+}
+
 // ── Charts ─────────────────────────────────────────────────────
 const charts = {};
 function destroyChart(id) {
@@ -635,195 +646,268 @@ function renderDetail(app, client, isAgency) {
 }
 
 // ── Reports ────────────────────────────────────────────────────
-export function reportsView(app) {
+export async function reportsView(app) {
   destroyChart();
   let tf = 'month';
 
-  function draw() {
-    destroyChart();
-    const tfKey = tf === 'today' ? 'week' : tf;
-    const ecom  = MOCK_CLIENTS.filter(c => c.niche === 'ecommerce' && c.revenueSeries[tfKey]?.length);
-    let combined = [];
-    if (ecom.length) {
-      combined = ecom[0].revenueSeries[tfKey].map((pt, i) => ({
-        date: pt.date,
-        revenue: ecom.reduce((s, c) => s + (c.revenueSeries[tfKey][i]?.revenue || 0), 0),
-      }));
-    }
-    const totalRev    = MOCK_CLIENTS.reduce((s, c) => s + c.metrics.revenue[tf], 0);
-    const totalSess   = MOCK_CLIENTS.reduce((s, c) => s + c.metrics.sessions[tf], 0);
-    const totalLeads  = MOCK_CLIENTS.reduce((s, c) => s + c.metrics.leads[tf] + c.metrics.emails[tf], 0);
-    const totalOrders = MOCK_CLIENTS.reduce((s, c) => s + c.metrics.orders[tf], 0);
+  app.innerHTML = buildLayout({
+    active: 'reports', title: 'Reports',
+    content: `
+      <div class="page-topbar"><div class="page-topbar-title">Reports</div></div>
+      <div class="section"><div class="skel" style="height:200px;border-radius:var(--radius-lg)"></div></div>
+      <div class="section"><div class="skel" style="height:100px;border-radius:var(--radius-lg)"></div></div>
+      <div class="section"><div class="skel" style="height:180px;border-radius:var(--radius-lg)"></div></div>
+    `,
+  });
+  wireLayout(app);
 
-    app.innerHTML = buildLayout({
-      active: 'reports', title: 'Reports',
-      content: `
-        <div class="page-topbar"><div class="page-topbar-title">Reports</div></div>
+  let clients;
+  try {
+    clients = await DB.fetchClientsWithMetrics();
+  } catch (_) {
+    clients = MOCK_CLIENTS;
+  }
 
-        <div class="tf-row" style="padding-top:16px">
-          ${['today','week','month','all'].map(t => `
-            <button class="tf-btn${tf === t ? ' active' : ''}" data-tf="${t}">
-              ${t==='today'?'Today':t==='week'?'Week':t==='month'?'Month':'All'}
-            </button>`).join('')}
-        </div>
+  function buildContent() {
+    const tfKey       = tf === 'today' ? 'week' : tf;
+    const days        = { week: 7, month: 30, all: 365 }[tfKey] || 30;
+    const totalRev    = clients.reduce((s, c) => s + c.metrics.revenue[tf],    0);
+    const totalSess   = clients.reduce((s, c) => s + c.metrics.sessions[tf],   0);
+    const totalLeads  = clients.reduce((s, c) => s + c.metrics.leads[tf] + c.metrics.emails[tf], 0);
+    const totalOrders = clients.reduce((s, c) => s + c.metrics.orders[tf],     0);
+    return { days, html: `
+      <div class="page-topbar"><div class="page-topbar-title">Reports</div></div>
 
-        <div class="section">
-          <div class="card">
-            <div class="chart-card-inner">
-              <div class="chart-top">
-                <div>
-                  <div class="chart-eyebrow">Total Revenue</div>
-                  <div class="chart-amount">${esc(fmt(totalRev))}</div>
-                </div>
-                <div class="chart-period">${esc(tfLabel(tf))}</div>
+      <div class="tf-row" style="padding-top:16px">
+        ${['today','week','month','all'].map(t => `
+          <button class="tf-btn${tf === t ? ' active' : ''}" data-tf="${t}">
+            ${t==='today'?'Today':t==='week'?'Week':t==='month'?'Month':'All'}
+          </button>`).join('')}
+      </div>
+
+      <div class="section">
+        <div class="card">
+          <div class="chart-card-inner">
+            <div class="chart-top">
+              <div>
+                <div class="chart-eyebrow">Total Revenue</div>
+                <div class="chart-amount">${esc(fmt(totalRev))}</div>
               </div>
-              <div class="chart-wrap"><canvas id="report-chart"></canvas></div>
+              <div class="chart-period">${esc(tfLabel(tf))}</div>
             </div>
+            <div class="chart-wrap"><canvas id="report-chart"></canvas></div>
           </div>
         </div>
+      </div>
 
-        <div class="section">
-          <div class="section-label">All clients · ${esc(tfLabel(tf))}</div>
-          <div class="metrics-grid">
-            <div class="metric-card featured"><div class="m-label">💰 Revenue</div><div class="m-value">${esc(fmt(totalRev))}</div></div>
-            <div class="metric-card"><div class="m-label">👁 Sessions</div><div class="m-value">${esc(num(totalSess))}</div></div>
-            <div class="metric-card"><div class="m-label">🛒 Orders</div><div class="m-value">${esc(num(totalOrders))}</div></div>
-            <div class="metric-card"><div class="m-label">🎯 Leads</div><div class="m-value">${esc(num(totalLeads))}</div></div>
-          </div>
+      <div class="section">
+        <div class="section-label">All clients · ${esc(tfLabel(tf))}</div>
+        <div class="metrics-grid">
+          <div class="metric-card featured"><div class="m-label">💰 Revenue</div><div class="m-value">${esc(fmt(totalRev))}</div></div>
+          <div class="metric-card"><div class="m-label">👁 Sessions</div><div class="m-value">${esc(num(totalSess))}</div></div>
+          <div class="metric-card"><div class="m-label">🛒 Orders</div><div class="m-value">${esc(num(totalOrders))}</div></div>
+          <div class="metric-card"><div class="m-label">🎯 Leads</div><div class="m-value">${esc(num(totalLeads))}</div></div>
         </div>
+      </div>
 
-        <div class="section">
-          <div class="section-label">Client breakdown</div>
-          <div class="card">
-            ${MOCK_CLIENTS.map(c => {
-              const rev   = c.metrics.revenue[tf];
-              const leads = c.metrics.leads[tf] + c.metrics.emails[tf];
-              const sess  = c.metrics.sessions[tf];
-              const pct   = trendPct(c.revenueSeries.month);
-              return `
-              <div class="table-row" style="cursor:pointer" data-id="${esc(c.id)}">
-                <div class="client-avatar" style="background:${esc(c.color)};width:32px;height:32px;border-radius:8px;font-size:0.65rem">${esc(c.initials)}</div>
-                <div class="row-main">
-                  <div class="row-name">${esc(c.name)}</div>
-                  <div class="row-sub">${esc(num(sess))} sessions · ${esc(num(leads))} leads</div>
-                </div>
-                <div class="row-right">
-                  <div class="row-amount">${rev > 0 ? esc(fmt(rev)) : '—'}</div>
-                  <div style="margin-top:2px">${trendBadge(pct)}</div>
-                </div>
-              </div>`;
-            }).join('')}
-          </div>
+      <div class="section">
+        <div class="section-label">Client breakdown</div>
+        <div class="card">
+          ${clients.map(c => {
+            const rev   = c.metrics.revenue[tf];
+            const leads = c.metrics.leads[tf] + c.metrics.emails[tf];
+            const sess  = c.metrics.sessions[tf];
+            const pct   = trendPct(c.revenueSeries?.month || []);
+            return `
+            <div class="table-row" style="cursor:pointer" data-id="${esc(c.id)}">
+              <div class="client-avatar" style="background:${esc(c.color)};width:32px;height:32px;border-radius:8px;font-size:0.65rem">${esc(c.initials)}</div>
+              <div class="row-main">
+                <div class="row-name">${esc(c.name)}</div>
+                <div class="row-sub">${esc(num(sess))} sessions · ${esc(num(leads))} leads</div>
+              </div>
+              <div class="row-right">
+                <div class="row-amount">${rev > 0 ? esc(fmt(rev)) : '—'}</div>
+                <div style="margin-top:2px">${trendBadge(pct)}</div>
+              </div>
+            </div>`;
+          }).join('')}
         </div>
-        <div class="page-spacer"></div>
-      `,
-    });
+      </div>
+      <div class="page-spacer"></div>
+    `};
+  }
 
-    wireLayout(app);
+  async function draw() {
+    destroyChart();
+    const { days, html } = buildContent();
+    const mainEl = document.querySelector('.main-content');
+    if (mainEl) {
+      mainEl.innerHTML = html;
+    } else {
+      app.innerHTML = buildLayout({ active: 'reports', title: 'Reports', content: html });
+      wireLayout(app);
+    }
+
     document.querySelectorAll('.tf-btn').forEach(btn =>
       btn.addEventListener('click', () => { tf = btn.dataset.tf; draw(); })
     );
     document.querySelectorAll('[data-id]').forEach(row =>
       row.addEventListener('click', () => location.hash = '#client/' + row.dataset.id)
     );
-    requestAnimationFrame(() => {
-      if (combined.length) renderChart('report-chart', combined, '#0064E0');
-      else {
-        const wrap = document.querySelector('.chart-wrap');
-        if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="es-icon">📊</div><div class="es-text">No revenue data for this period</div></div>';
+
+    // Fetch and render revenue chart in background
+    try {
+      const ecom = clients.filter(c => c.niche === 'ecommerce');
+      if (ecom.length) {
+        const seriesArrays = await Promise.all(ecom.map(c => DB.fetchRevenueSeries(c.id, days)));
+        const combined = mergeSeries(seriesArrays);
+        if (combined.length) { renderChart('report-chart', combined, '#0064E0'); return; }
       }
-    });
+    } catch (_) {}
+    const wrap = document.querySelector('.chart-wrap');
+    if (wrap) wrap.innerHTML = '<div class="empty-state"><div class="es-icon">📊</div><div class="es-text">No revenue data for this period</div></div>';
   }
 
-  draw();
+  await draw();
 }
 
 // ── Settings ───────────────────────────────────────────────────
-export function settingsView(app) {
+export async function settingsView(app) {
   destroyChart();
 
   app.innerHTML = buildLayout({
     active: 'settings', title: 'Settings',
     content: `
-      <div class="page-topbar">
-        <div class="page-topbar-title">Settings</div>
-      </div>
-
-      <div class="section">
-        <div class="section-label">Agency account</div>
-        <div class="card">
-          <div class="table-row">
-            <div class="row-main">
-              <div class="row-name">Kalnyesgrowth</div>
-              <div class="row-sub">Agency owner</div>
-            </div>
-            <div style="font-size:0.72rem;color:var(--green-light);font-weight:600;flex-shrink:0">Active</div>
-          </div>
-          <div class="table-row">
-            <div class="row-main">
-              <div class="row-name">admin@kalnyesgrowth.com</div>
-              <div class="row-sub">Login email</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="section">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <div class="section-label" style="margin-bottom:0">Clients</div>
-          <button class="btn-pill" id="add-client-btn" style="font-size:0.72rem;padding:7px 16px">+ Add client</button>
-        </div>
-        <div class="card">
-          ${MOCK_CLIENTS.map(c => `
-            <div class="table-row">
-              <div class="client-avatar" style="background:${esc(c.color)};width:32px;height:32px;border-radius:8px;font-size:0.65rem;flex-shrink:0">${esc(c.initials)}</div>
-              <div class="row-main">
-                <div class="row-name">${esc(c.name)}</div>
-                <div class="row-sub cred-email" data-id="${esc(c.id)}" style="cursor:pointer;color:var(--blue)">Tap to reveal login</div>
-              </div>
-            </div>`).join('')}
-        </div>
-      </div>
-
-      <div class="section">
-        <div class="section-label">Plan</div>
-        <div class="card">
-          <div class="table-row">
-            <div class="row-main">
-              <div class="row-name">Agency Dashboard v1</div>
-              <div class="row-sub">5 demo clients · live Supabase tracking</div>
-            </div>
-            <div style="font-size:0.7rem;color:var(--text-secondary);flex-shrink:0">v1.0</div>
-          </div>
-          <div class="table-row">
-            <div class="row-main">
-              <div class="row-name">$200 / mo per client</div>
-              <div class="row-sub">Billing via Stripe — coming soon</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="section">
-        <div class="card">
-          <div class="table-row" id="signout-row" style="cursor:pointer">
-            <div class="row-name" style="color:var(--red)">Sign out</div>
-          </div>
-        </div>
-      </div>
-      <div class="page-spacer"></div>
+      <div class="page-topbar"><div class="page-topbar-title">Settings</div></div>
+      <div class="section"><div class="skel" style="height:100px;border-radius:var(--radius-lg)"></div></div>
+      <div class="section"><div class="skel" style="height:200px;border-radius:var(--radius-lg)"></div></div>
     `,
   });
-
   wireLayout(app);
 
-  document.querySelectorAll('.cred-email').forEach(el => {
-    el.addEventListener('click', () => {
-      const creds = CREDS_MAP[el.dataset.id];
-      if (!creds) return;
-      if (el.dataset.revealed) { el.textContent = 'Tap to reveal login'; delete el.dataset.revealed; }
-      else { el.textContent = creds.email + ' · ' + creds.password; el.dataset.revealed = '1'; }
-    });
+  let clients, isReal = true;
+  try {
+    clients = await DB.fetchClients();
+  } catch (_) {
+    clients = MOCK_CLIENTS;
+    isReal  = false;
+  }
+
+  function clientRows() {
+    return clients.map(c => {
+      const creds = isReal ? null : CREDS_MAP[c.id];
+      const email = creds ? creds.email : (c.login_email || '');
+      const pw    = creds ? creds.password : '';
+      return `
+        <div class="table-row">
+          <div class="client-avatar" style="background:${esc(c.color)};width:32px;height:32px;border-radius:8px;font-size:0.65rem;flex-shrink:0">${esc(c.initials)}</div>
+          <div class="row-main">
+            <div class="row-name">${esc(c.name)}</div>
+            ${email || creds
+              ? `<div class="cred-reveal" data-email="${esc(email)}" data-pw="${esc(pw)}"
+                   style="cursor:pointer;color:var(--blue);font-size:0.75rem">Tap to reveal login</div>`
+              : `<div style="font-size:0.75rem;color:var(--text-secondary)">${esc(c.domain || '—')}</div>`}
+          </div>
+          <button class="del-client-btn" data-id="${esc(c.id)}" data-name="${esc(c.name)}"
+            style="background:none;border:none;color:#E02020;font-size:0.9rem;cursor:pointer;padding:8px;opacity:0.65;flex-shrink:0;-webkit-tap-highlight-color:transparent"
+            title="Delete">✕</button>
+        </div>`;
+    }).join('');
+  }
+
+  const main = document.querySelector('.main-content');
+  main.innerHTML = `
+    <div class="page-topbar"><div class="page-topbar-title">Settings</div></div>
+
+    <div class="section">
+      <div class="section-label">Agency account</div>
+      <div class="card">
+        <div class="table-row">
+          <div class="row-main">
+            <div class="row-name">Kalnyesgrowth</div>
+            <div class="row-sub">Agency owner</div>
+          </div>
+          <div style="font-size:0.72rem;color:var(--green-light);font-weight:600;flex-shrink:0">Active</div>
+        </div>
+        <div class="table-row">
+          <div class="row-main">
+            <div class="row-name">admin@kalnyesgrowth.com</div>
+            <div class="row-sub">Login email</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="section-label" style="margin-bottom:0">Clients <span id="client-count" style="font-weight:400;color:var(--text-secondary)">(${clients.length})</span></div>
+        <button class="btn-pill" id="add-client-btn" style="font-size:0.72rem;padding:7px 16px">+ Add client</button>
+      </div>
+      <div class="card" id="clients-list">${clientRows()}</div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Plan</div>
+      <div class="card">
+        <div class="table-row">
+          <div class="row-main">
+            <div class="row-name">Agency Dashboard v1</div>
+            <div class="row-sub">${clients.length} client${clients.length !== 1 ? 's' : ''} · live Supabase tracking</div>
+          </div>
+          <div style="font-size:0.7rem;color:var(--text-secondary);flex-shrink:0">v1.0</div>
+        </div>
+        <div class="table-row">
+          <div class="row-main">
+            <div class="row-name">$200 / mo per client</div>
+            <div class="row-sub">Billing via Stripe — coming soon</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="card">
+        <div class="table-row" id="signout-row" style="cursor:pointer">
+          <div class="row-name" style="color:#E02020">Sign out</div>
+        </div>
+      </div>
+    </div>
+    <div class="page-spacer"></div>
+  `;
+
+  // Event delegation handles both reveal and delete, survives innerHTML re-renders
+  document.getElementById('clients-list').addEventListener('click', async e => {
+    const reveal = e.target.closest('.cred-reveal');
+    if (reveal) {
+      if (reveal.dataset.revealed) {
+        reveal.textContent = 'Tap to reveal login';
+        delete reveal.dataset.revealed;
+      } else {
+        const email = reveal.dataset.email;
+        const pw    = reveal.dataset.pw;
+        reveal.textContent = pw ? `${email} · ${pw}` : (email || 'Login not stored');
+        reveal.dataset.revealed = '1';
+      }
+      return;
+    }
+
+    const del = e.target.closest('.del-client-btn');
+    if (del) {
+      const name = del.dataset.name;
+      const id   = del.dataset.id;
+      if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
+      del.disabled = true;
+      try {
+        await DB.deleteClient(id);
+        clients = clients.filter(c => c.id !== id);
+        document.getElementById('clients-list').innerHTML = clientRows();
+        document.getElementById('client-count').textContent = `(${clients.length})`;
+        showToast(`${name} deleted`);
+      } catch (err) {
+        showToast('Delete failed: ' + (err.message || 'Unknown error'));
+        del.disabled = false;
+      }
+    }
   });
 
   document.getElementById('add-client-btn').addEventListener('click', () => showAddClientModal(app));
