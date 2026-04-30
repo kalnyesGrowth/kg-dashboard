@@ -137,6 +137,36 @@ export async function fetchAgencySummary() {
   };
 }
 
+// ── Clients list with metrics (one-shot for the overview) ──────
+export async function fetchClientsWithMetrics() {
+  const [{ data: clients, error: ce }, { data: mets }] = await Promise.all([
+    supabase.from('clients').select('*').eq('status', 'active').order('name'),
+    supabase.from('client_metrics_summary').select('*'),
+  ]);
+  if (ce) throw ce;
+  const mm = Object.fromEntries((mets || []).map(m => [m.client_id, m]));
+  const n  = (obj, k) => Number(obj?.[k] || 0);
+  return (clients || []).map(c => {
+    const m = mm[c.id] || {};
+    return {
+      id: c.id, name: c.name, domain: c.domain,
+      color: c.color || '#0064E0', initials: c.initials,
+      plan: c.plan, niche: c.niche, status: c.status,
+      metrics: {
+        revenue:    { today: n(m,'revenue_today'),       week: n(m,'revenue_week'),       month: n(m,'revenue_month'),       all: n(m,'revenue_all')       },
+        sessions:   { today: n(m,'sessions_today'),      week: n(m,'sessions_week'),       month: n(m,'sessions_month'),      all: n(m,'sessions_all')      },
+        leads:      { today: n(m,'leads_today'),         week: n(m,'leads_week'),          month: n(m,'leads_month'),         all: n(m,'leads_all')         },
+        emails:     { today: n(m,'emails_today'),        week: n(m,'emails_week'),         month: n(m,'emails_month'),        all: n(m,'emails_all')        },
+        orders:     { today: n(m,'orders_today'),        week: n(m,'orders_week'),         month: n(m,'orders_month'),        all: n(m,'orders_all')        },
+        addToCarts: { today: n(m,'add_to_carts_today'),  week: n(m,'add_to_carts_week'),   month: n(m,'add_to_carts_month'),  all: n(m,'add_to_carts_all')  },
+      },
+      revenueSeries: { week: [], month: [], all: [] },
+      recentOrders:  [],
+      recentEmails:  [],
+    };
+  });
+}
+
 // ── Add a new client ───────────────────────────────────────────
 export async function addClient({ name, domain, color, initials, plan, niche }) {
   const { data, error } = await supabase
