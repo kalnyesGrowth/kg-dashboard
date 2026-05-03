@@ -419,14 +419,15 @@ export async function clientSelfView(app, clientId) {
 // ── Shared detail renderer ─────────────────────────────────────
 function renderDetail(app, client, isAgency) {
   let tf   = 'month';
-  let live = null; // { metrics, revenueSeries, recentOrders, recentEmails, recentEvents }
+  let live = null; // { metrics, revenueSeries, recentOrders, recentEmails, recentEvents, subscribers }
 
   function draw() {
-    const metrics  = live?.metrics       || client.metrics;
-    const revSer   = live?.revenueSeries  || client.revenueSeries;
+    const metrics      = live?.metrics       || client.metrics;
+    const revSer       = live?.revenueSeries  || client.revenueSeries;
     const orders       = live?.recentOrders   || client.recentOrders;
     const emails       = live?.recentEmails   || client.recentEmails;
     const recentEvents = live?.recentEvents   || [];
+    const subscribers  = live?.subscribers    || [];
 
     destroyChart();
     const m      = metrics;
@@ -526,20 +527,31 @@ function renderDetail(app, client, isAgency) {
         </div>
       </div>` : ''}
 
-      ${emails.length ? `
       <div class="section">
-        <div class="section-label">Email captures</div>
-        <div class="card">
-          ${emails.map(e => `
-            <div class="table-row">
-              <div style="font-size:1.1rem;flex-shrink:0">✉️</div>
-              <div class="row-main">
-                <div class="row-name">${esc(e.email)}</div>
-                <div class="row-sub">${esc(e.source)} · ${esc(e.date)}</div>
-              </div>
-            </div>`).join('')}
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div class="section-label" style="margin-bottom:0">Subscribers <span id="sub-count" style="color:var(--text-secondary);font-weight:400">(${subscribers.length})</span></div>
+          ${subscribers.length ? `<button id="compose-btn" class="btn-pill" style="font-size:0.72rem;padding:7px 14px">✉️ Send email</button>` : ''}
         </div>
-      </div>` : ''}
+        ${subscribers.length ? `
+        <input id="sub-search" type="search" placeholder="Search subscribers…"
+          style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.82rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none;margin-bottom:8px" />
+        <div class="card" style="max-height:320px;overflow-y:auto" id="sub-list">
+          ${subscribers.map(s => `
+          <div class="table-row sub-row">
+            <div style="font-size:1rem;flex-shrink:0">✉️</div>
+            <div class="row-main">
+              <div class="row-name sub-email">${esc(s.email)}</div>
+              <div class="row-sub">${esc(s.source)} · ${esc(s.date)}</div>
+            </div>
+          </div>`).join('')}
+        </div>` : `
+        <div class="card">
+          <div class="empty-state" style="padding:32px 20px">
+            <div class="es-icon">✉️</div>
+            <div class="es-text">No subscribers yet — emails captured on the site will appear here</div>
+          </div>
+        </div>`}
+      </div>
 
       <div class="section">
         <div class="section-label">Live activity</div>
@@ -603,6 +615,21 @@ function renderDetail(app, client, isAgency) {
       btn.addEventListener('click', () => { tf = btn.dataset.tf; draw(); })
     );
 
+    // Subscriber search
+    document.getElementById('sub-search')?.addEventListener('input', e => {
+      const q = e.target.value.toLowerCase();
+      document.querySelectorAll('.sub-row').forEach(row => {
+        const email = row.querySelector('.sub-email')?.textContent.toLowerCase() || '';
+        row.style.display = email.includes(q) ? '' : 'none';
+      });
+    });
+
+    // Compose button
+    document.getElementById('compose-btn')?.addEventListener('click', () => {
+      const subs = live?.subscribers || [];
+      showComposeModal(app, client, subs);
+    });
+
     document.getElementById('copy-tracker')?.addEventListener('click', () => {
       const snippet = `<script src="https://project-kday6.vercel.app/tracker/tracker.js" data-client="${client.id}"></script>`;
       navigator.clipboard?.writeText(snippet).then(() => {
@@ -623,7 +650,7 @@ function renderDetail(app, client, isAgency) {
   // Fetch live Supabase data in background
   (async () => {
     try {
-      const [metrics, todayLive, sw, sm, sa, liveOrders, liveEmails, recentEvents] = await Promise.all([
+      const [metrics, todayLive, sw, sm, sa, liveOrders, liveEmails, recentEvents, allSubs] = await Promise.all([
         DB.fetchMetricsSummary(client.id),
         DB.fetchLiveTodayMetrics(client.id),
         DB.fetchRevenueSeries(client.id, 7),
@@ -632,6 +659,7 @@ function renderDetail(app, client, isAgency) {
         DB.fetchRecentOrders(client.id),
         DB.fetchRecentEmails(client.id),
         DB.fetchRecentEvents(client.id, 25),
+        DB.fetchAllSubscribers(client.id),
       ]);
       if (!document.querySelector('.client-header-strip')) return;
       // Overlay today's numbers with live-computed values (bypass daily rollup lag)
@@ -645,6 +673,7 @@ function renderDetail(app, client, isAgency) {
         recentOrders: liveOrders,
         recentEmails: liveEmails,
         recentEvents,
+        subscribers:  allSubs,
       };
       draw();
     } catch (_) {}
@@ -1125,6 +1154,78 @@ function showAddClientModal(app) {
       errEl.textContent = e.message || 'Something went wrong. Please try again.';
       submitBtn.disabled = false;
       submitBtn.textContent = 'Add client';
+    }
+  });
+}
+
+// ── Compose & send broadcast email ────────────────────────────
+function showComposeModal(app, client, subscribers) {
+  const count = subscribers.length;
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal" id="compose-modal">
+      <div class="modal-header">
+        <div class="modal-title">Send email</div>
+        <button class="modal-close" id="compose-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>To</label>
+          <div style="background:var(--soft-gray);padding:10px 12px;border-radius:var(--radius-sm);font-size:0.8rem;color:var(--text-secondary);border:1px solid var(--border)">
+            All ${count} subscriber${count !== 1 ? 's' : ''} of ${esc(client.name)}
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Subject</label>
+          <input id="ce-subject" type="text" placeholder="e.g. Special offer just for you 🎉" />
+        </div>
+        <div class="form-group">
+          <label>Message</label>
+          <textarea id="ce-body" rows="8" placeholder="Write your message here…"
+            style="width:100%;box-sizing:border-box;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.88rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none;resize:vertical"></textarea>
+        </div>
+        <div id="ce-err" style="color:#E02020;font-size:0.78rem;margin-bottom:8px;min-height:18px;text-align:center"></div>
+        <div class="modal-footer">
+          <button class="btn-pill-outline" id="ce-cancel">Cancel</button>
+          <button class="btn-pill" id="ce-send" style="flex:2">Send to ${count} subscriber${count !== 1 ? 's' : ''}</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.body.appendChild(backdrop);
+  const close = () => backdrop.remove();
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+  document.getElementById('compose-close').addEventListener('click', close);
+  document.getElementById('ce-cancel').addEventListener('click', close);
+
+  document.getElementById('ce-send').addEventListener('click', async () => {
+    const subject = document.getElementById('ce-subject').value.trim();
+    const body    = document.getElementById('ce-body').value.trim();
+    const errEl   = document.getElementById('ce-err');
+    const sendBtn = document.getElementById('ce-send');
+    errEl.textContent = '';
+
+    if (!subject) { errEl.textContent = 'Please enter a subject line.'; return; }
+    if (!body)    { errEl.textContent = 'Please write a message.'; return; }
+
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'Sending…';
+
+    try {
+      await DB.sendBroadcast({
+        clientId:   client.id,
+        clientName: client.name,
+        recipients: subscribers.map(s => s.email),
+        subject,
+        body,
+      });
+      close();
+      showToast(`Email sent to ${count} subscriber${count !== 1 ? 's' : ''} ✓`);
+    } catch (e) {
+      errEl.textContent = e.message || 'Failed to send. Please try again.';
+      sendBtn.disabled = false;
+      sendBtn.textContent = `Send to ${count} subscriber${count !== 1 ? 's' : ''}`;
     }
   });
 }

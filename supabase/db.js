@@ -239,6 +239,49 @@ export async function createClientUser(email, password, clientId) {
   return json; // { userId, email }
 }
 
+// ── All subscribers (deduplicated email captures) ──────────────
+export async function fetchAllSubscribers(clientId) {
+  const { data, error } = await supabase
+    .from('events')
+    .select('payload, ts')
+    .eq('client_id', clientId)
+    .eq('event_type', 'email_capture')
+    .order('ts', { ascending: false });
+  if (error) throw error;
+
+  const seen = new Set();
+  return (data || []).filter(row => {
+    const email = row.payload?.email;
+    if (!email || seen.has(email)) return false;
+    seen.add(email);
+    return true;
+  }).map(row => ({
+    email:  row.payload?.email,
+    source: row.payload?.source || 'website',
+    date:   new Date(row.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+  }));
+}
+
+// ── Send broadcast email via edge function ─────────────────────
+export async function sendBroadcast({ clientId, clientName, recipients, subject, body }) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/send-broadcast`, {
+    method: 'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+      'apikey':        SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({ clientId, clientName, recipients, subject, body }),
+  });
+
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'Failed to send email');
+  return json;
+}
+
 // ── Delete a client (rollback on partial failure) ──────────────
 export async function deleteClient(clientId) {
   const { error } = await supabase.from('clients').delete().eq('id', clientId);
