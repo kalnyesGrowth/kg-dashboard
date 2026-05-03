@@ -404,8 +404,14 @@ export async function clientDetailView(app, clientId) {
 }
 
 // ── Client: Self view ──────────────────────────────────────────
-export function clientSelfView(app, clientId) {
-  const client = getClient(clientId);
+export async function clientSelfView(app, clientId) {
+  let client = getClient(clientId);
+  if (!client) {
+    try {
+      const sbClient = await DB.fetchClient(clientId);
+      if (sbClient) client = normalizeClient(sbClient);
+    } catch (_) {}
+  }
   if (!client) { clearSession().then(() => loginView(app)); return; }
   renderDetail(app, client, false);
 }
