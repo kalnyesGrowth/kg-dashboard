@@ -1,5 +1,5 @@
 const DEV = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
-const CACHE = 'kg-dash-v12';
+const CACHE = 'kg-dash-v13';
 const ASSETS = [
   '/',
   '/index.html',
@@ -32,17 +32,15 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  if (DEV || e.request.method !== 'GET') return; // no caching in dev
+  if (DEV || e.request.method !== 'GET') return;
+  // Network-first: always fetch fresh, cache as offline fallback
   e.respondWith(
-    caches.match(e.request).then(cached => {
-      const net = fetch(e.request).then(r => {
-        if (r.ok && new URL(e.request.url).origin === self.location.origin) {
-          const clone = r.clone();
-          caches.open(CACHE).then(c => c.put(e.request, clone));
-        }
-        return r;
-      });
-      return cached || net.catch(() => caches.match('/index.html'));
-    })
+    fetch(e.request).then(r => {
+      if (r.ok && new URL(e.request.url).origin === self.location.origin) {
+        const clone = r.clone();
+        caches.open(CACHE).then(c => c.put(e.request, clone));
+      }
+      return r;
+    }).catch(() => caches.match(e.request).then(c => c || caches.match('/index.html')))
   );
 });
