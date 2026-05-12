@@ -413,7 +413,304 @@ export async function clientSelfView(app, clientId) {
     } catch (_) {}
   }
   if (!client) { clearSession().then(() => loginView(app)); return; }
-  renderDetail(app, client, false);
+
+  // Initial render with cached/mock data
+  renderClientDashboard(app, client, null, loginView);
+
+  // Fetch live data in background and re-render
+  (async () => {
+    try {
+      const [metrics, todayLive, sw, sm, sa, liveEmails, recentEvents, allSubs] = await Promise.all([
+        DB.fetchMetricsSummary(client.id),
+        DB.fetchLiveTodayMetrics(client.id),
+        DB.fetchRevenueSeries(client.id, 7),
+        DB.fetchRevenueSeries(client.id, 30),
+        DB.fetchRevenueSeries(client.id, 90),
+        DB.fetchRecentEmails(client.id),
+        DB.fetchRecentEvents(client.id, 20),
+        DB.fetchAllSubscribers(client.id),
+      ]);
+      if (!document.getElementById('cdb-root')) return;
+      const patchedMetrics = { ...metrics };
+      for (const key of ['revenue','sessions','leads','emails','orders','addToCarts']) {
+        patchedMetrics[key] = { ...metrics[key], today: todayLive[key] ?? metrics[key].today };
+      }
+      renderClientDashboard(app, client, {
+        metrics: patchedMetrics,
+        revenueSeries: { week: sw, month: sm, all: sa },
+        recentEmails: liveEmails,
+        recentEvents,
+        subscribers: allSubs,
+      }, loginView);
+    } catch (_) {}
+  })();
+}
+
+// ── Client Self Dashboard (mockup-style) ───────────────────────
+function renderClientDashboard(app, client, liveData, loginViewFn) {
+  const metrics      = liveData?.metrics       || client.metrics;
+  const revSer       = liveData?.revenueSeries  || client.revenueSeries;
+  const recentEvents = liveData?.recentEvents   || [];
+  const subscribers  = liveData?.subscribers    || [];
+  const m            = metrics;
+
+  // Count new subscribers this calendar month
+  const now = new Date();
+  const newThisMonth = subscribers.filter(s => {
+    const d = new Date(s.date || s.created_at || '');
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  }).length;
+
+  const chartSeries = revSer?.month || revSer?.week || [];
+
+  app.innerHTML = `
+    <div id="cdb-root" style="min-height:100dvh;background:#F1F4F7;font-family:'Inter',sans-serif">
+
+      <!-- Top bar -->
+      <header class="cdb-topbar">
+        <div class="cdb-topbar-logo">
+          <div class="cdb-topbar-badge">KG</div>
+          <div>
+            <div class="cdb-topbar-brand">Kalnyes Growth</div>
+            <div class="cdb-topbar-sub">Client Dashboard</div>
+          </div>
+        </div>
+        <div class="cdb-topbar-right">
+          <div class="cdb-client-chip">
+            <div class="cdb-chip-ava" style="background:${esc(client.color)}">${esc(client.initials)}</div>
+            <span class="cdb-chip-name">${esc(client.name)}</span>
+          </div>
+          <button class="cdb-logout-btn" id="cdb-logout">Log Out</button>
+        </div>
+      </header>
+
+      <!-- Body -->
+      <div class="cdb-body">
+
+        <!-- Welcome -->
+        <div class="cdb-welcome-row">
+          <div>
+            <h2 class="cdb-welcome-h">${greeting()}, ${esc(client.name.split(' ')[0])} 👋</h2>
+            <p class="cdb-welcome-p">Here's how your business is performing — updated daily.</p>
+          </div>
+          <div class="cdb-status-pill">
+            <div class="cdb-status-dot"></div>
+            All systems live
+          </div>
+        </div>
+
+        <!-- Stat cards -->
+        <div class="cdb-sec-label">This Month at a Glance</div>
+        <div class="cdb-stats-grid">
+          <div class="cdb-stat-card">
+            <div class="cdb-stat-top">
+              <div class="cdb-stat-icon" style="background:#FFF7ED">📧</div>
+              <span class="cdb-stat-badge" style="background:#FFF7ED;color:#EA580C">+${newThisMonth} this mo.</span>
+            </div>
+            <div class="cdb-stat-num">${subscribers.length.toLocaleString()}</div>
+            <div class="cdb-stat-label">Email Subscribers</div>
+            <div class="cdb-stat-sub">Total active contacts</div>
+          </div>
+          <div class="cdb-stat-card">
+            <div class="cdb-stat-top">
+              <div class="cdb-stat-icon" style="background:#EFF6FF">📊</div>
+              <span class="cdb-stat-badge" style="background:#EFF6FF;color:#1D4ED8">This month</span>
+            </div>
+            <div class="cdb-stat-num">${num(m.sessions.month)}</div>
+            <div class="cdb-stat-label">Website Visitors</div>
+            <div class="cdb-stat-sub">Sessions tracked this month</div>
+          </div>
+          <div class="cdb-stat-card">
+            <div class="cdb-stat-top">
+              <div class="cdb-stat-icon" style="background:#F0FDF4">📩</div>
+              <span class="cdb-stat-badge" style="background:#F0FDF4;color:#15803D">This month</span>
+            </div>
+            <div class="cdb-stat-num">${num(m.leads.month)}</div>
+            <div class="cdb-stat-label">Quote Requests</div>
+            <div class="cdb-stat-sub">New leads captured</div>
+          </div>
+          <div class="cdb-stat-card">
+            <div class="cdb-stat-top">
+              <div class="cdb-stat-icon" style="background:#F5F3FF">💰</div>
+              <span class="cdb-stat-badge" style="background:#F5F3FF;color:#6D28D9">Revenue</span>
+            </div>
+            <div class="cdb-stat-num">${fmt(m.revenue.month)}</div>
+            <div class="cdb-stat-label">Monthly Revenue</div>
+            <div class="cdb-stat-sub">Tracked this month</div>
+          </div>
+        </div>
+
+        <!-- Analytics chart -->
+        <div class="cdb-sec-label">Website Activity</div>
+        <div class="cdb-chart-card">
+          <div class="cdb-chart-header">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div class="cdb-card-icon-wrap" style="background:#EFF6FF">📈</div>
+              <div>
+                <div class="cdb-chart-title">Visitor Traffic</div>
+                <div class="cdb-chart-sub">Last 30 days · tracked by KG</div>
+              </div>
+            </div>
+          </div>
+          <div style="padding:0 20px 4px;height:180px">
+            <canvas id="cdb-chart"></canvas>
+          </div>
+          <div class="cdb-chart-stats">
+            <div class="cdb-a-stat"><div class="cdb-a-num">${num(m.sessions.month)}</div><div class="cdb-a-label">Total Visitors</div></div>
+            <div class="cdb-a-stat"><div class="cdb-a-num">${num(m.sessions.week)}</div><div class="cdb-a-label">This Week</div></div>
+            <div class="cdb-a-stat"><div class="cdb-a-num">${num(m.leads.month)}</div><div class="cdb-a-label">Leads</div></div>
+            <div class="cdb-a-stat"><div class="cdb-a-num">${num(m.sessions.today)}</div><div class="cdb-a-label">Today</div></div>
+          </div>
+        </div>
+
+        <!-- Two column -->
+        <div class="cdb-two-col">
+
+          <!-- Email list -->
+          <div class="cdb-card">
+            <div class="cdb-card-header">
+              <div class="cdb-card-title">
+                <div class="cdb-card-icon-wrap" style="background:#FFF7ED">📧</div>
+                Email List
+              </div>
+              ${subscribers.length ? `<button class="cdb-pill-btn" id="cdb-compose">✉️ Send email</button>` : ''}
+            </div>
+            <div class="cdb-email-big">
+              <div class="cdb-email-big-num">${subscribers.length.toLocaleString()}</div>
+              <div class="cdb-email-big-label">Total subscribers</div>
+            </div>
+            <div class="cdb-email-metrics">
+              <div class="cdb-em-box">
+                <div class="cdb-em-num">+${newThisMonth}</div>
+                <div class="cdb-em-label">New this month</div>
+              </div>
+              <div class="cdb-em-box">
+                <div class="cdb-em-num">${num(m.emails.month)}</div>
+                <div class="cdb-em-label">Captured on site</div>
+              </div>
+            </div>
+            ${subscribers.length ? `
+            <div class="cdb-sec-label" style="margin:16px 0 8px">Recent Subscribers</div>
+            <input id="cdb-sub-search" type="search" placeholder="Search by email…" class="cdb-search-input" />
+            <div id="cdb-sub-list" style="display:flex;flex-direction:column;gap:2px;max-height:260px;overflow-y:auto">
+              ${subscribers.slice(0, 8).map(s => `
+              <div class="cdb-sub-row sub-row">
+                <span style="font-size:0.95rem;flex-shrink:0">✉️</span>
+                <div style="flex:1;min-width:0">
+                  <div class="cdb-sub-email sub-email">${esc(s.email)}</div>
+                  <div class="cdb-sub-date">${esc(s.source || 'website')} · ${esc(s.date || '')}</div>
+                </div>
+              </div>`).join('')}
+            </div>` : `
+            <div class="cdb-empty-state"><div>✉️</div><div>Emails captured on your site will appear here</div></div>`}
+          </div>
+
+          <!-- Right column -->
+          <div style="display:flex;flex-direction:column;gap:16px">
+
+            <!-- Live activity -->
+            <div class="cdb-card">
+              <div class="cdb-card-header">
+                <div class="cdb-card-title">
+                  <div class="cdb-card-icon-wrap" style="background:#F0FDF4">📡</div>
+                  Live Activity
+                </div>
+              </div>
+              ${recentEvents.length ? recentEvents.slice(0, 5).map(e => `
+              <div class="cdb-activity-row">
+                <span style="font-size:0.95rem;width:22px;text-align:center;flex-shrink:0">${eventIcon(e.event_type)}</span>
+                <div style="flex:1;min-width:0">
+                  <div class="cdb-activity-label">${esc(e.event_type.replace(/_/g,' '))}</div>
+                  ${e.page ? `<div class="cdb-activity-sub">${esc(e.page.length > 32 ? e.page.slice(0,32)+'…' : e.page)}</div>` : ''}
+                </div>
+                <div class="cdb-activity-time">${timeAgo(e.ts)}</div>
+              </div>`).join('') : `
+              <div class="cdb-empty-state"><div>📡</div><div>No events yet</div></div>`}
+            </div>
+
+            <!-- Quick actions -->
+            <div class="cdb-card">
+              <div class="cdb-card-header">
+                <div class="cdb-card-title">
+                  <div class="cdb-card-icon-wrap" style="background:#FFF7ED">⚡</div>
+                  Quick Actions
+                </div>
+              </div>
+              <div class="cdb-quick-grid">
+                <a class="cdb-quick-btn" href="${esc(client.domain || '#')}" target="_blank" rel="noopener"><span>🌐</span> View Website</a>
+                <a class="cdb-quick-btn" href="https://business.google.com" target="_blank" rel="noopener"><span>⭐</span> Google Reviews</a>
+                <a class="cdb-quick-btn" href="https://analytics.google.com" target="_blank" rel="noopener"><span>📈</span> Full Analytics</a>
+                <a class="cdb-quick-btn" href="https://www.facebook.com" target="_blank" rel="noopener"><span>💬</span> Messages</a>
+                ${subscribers.length ? `<button class="cdb-quick-btn" id="cdb-compose-q"><span>📨</span> Send Campaign</button>` : ''}
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Help box -->
+        <div class="cdb-help-box">
+          <div class="cdb-help-left">
+            <div class="cdb-help-avatar">J</div>
+            <div>
+              <div class="cdb-help-name">Need anything? I'm here.</div>
+              <div class="cdb-help-sub">Website updates, new features, campaign help — just message and I'll handle it.</div>
+            </div>
+          </div>
+          <a href="mailto:jessyt440@gmail.com" class="cdb-help-cta">Message Your Manager →</a>
+        </div>
+
+      </div>
+    </div>`;
+
+  // Wire events
+  document.getElementById('cdb-logout')?.addEventListener('click', () => clearSession().then(() => loginViewFn(app)));
+
+  const composeHandler = () => showComposeModal(app, client, subscribers);
+  document.getElementById('cdb-compose')?.addEventListener('click', composeHandler);
+  document.getElementById('cdb-compose-q')?.addEventListener('click', composeHandler);
+
+  document.getElementById('cdb-sub-search')?.addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    document.querySelectorAll('.sub-row').forEach(row => {
+      const email = row.querySelector('.sub-email')?.textContent.toLowerCase() || '';
+      row.style.display = email.includes(q) ? '' : 'none';
+    });
+  });
+
+  // Bar chart
+  requestAnimationFrame(() => {
+    const canvas = document.getElementById('cdb-chart');
+    if (!canvas || !chartSeries.length) return;
+    const existing = Chart.getChart(canvas);
+    if (existing) existing.destroy();
+    const accent = client.color || '#F97316';
+    new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: chartSeries.map((_, i) => i),
+        datasets: [{
+          data: chartSeries,
+          backgroundColor: chartSeries.map((_, i) =>
+            i >= chartSeries.length - 7 ? accent : 'rgba(0,0,0,0.07)'
+          ),
+          borderRadius: 5,
+          borderSkipped: false,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: {
+          callbacks: { label: ctx => ` ${ctx.parsed.y.toLocaleString()}` }
+        }},
+        scales: {
+          x: { display: false },
+          y: { display: false, beginAtZero: true }
+        }
+      }
+    });
+  });
 }
 
 // ── Shared detail renderer ─────────────────────────────────────
