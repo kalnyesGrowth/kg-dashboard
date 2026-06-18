@@ -1484,6 +1484,17 @@ html, body {
   .ag-site-stats { grid-template-columns: 1fr 1fr; }
 }
 
+/* Toast notification */
+.sp-toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: #303030; color: #fff; padding: 12px 24px; border-radius: 10px;
+  font-size: 14px; font-weight: 500; z-index: 9999;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  opacity: 0; transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none; white-space: nowrap;
+}
+.sp-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
 /* ── Client Dashboard (Shopify-style, sp-*) ─────────────────────── */
 .sp-page { padding: 20px 24px; max-width: 1200px; }
 .sp-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }

@@ -7,6 +7,15 @@ const CREDS_MAP = CLIENT_CREDS;
 
 const PRESET_COLORS = ['#7C3AED','#0064E0','#0369A1','#0F766E','#059669','#B45309','#BE185D','#DC2626'];
 
+function showToast(msg) {
+  const el = document.createElement('div');
+  el.className = 'sp-toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, 4000);
+}
+
 const ZERO_METRICS = {
   revenue:    { today:0, week:0, month:0, all:0 },
   sessions:   { today:0, week:0, month:0, all:0 },
@@ -558,6 +567,29 @@ export async function clientDetailView(app, clientId) {
   renderDetail(app, client, true);
 }
 
+// ── Shopify "cha-ching" notification sound (synthesized) ──────
+let _chachingCtx = null;
+function playChaChing() {
+  try {
+    const ctx = _chachingCtx || (_chachingCtx = new (window.AudioContext || window.webkitAudioContext)());
+    const now = ctx.currentTime;
+    function tone(freq, start, dur, gain) {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + start);
+      g.gain.setValueAtTime(gain, now + start);
+      g.gain.exponentialRampToValueAtTime(0.001, now + start + dur);
+      osc.connect(g).connect(ctx.destination);
+      osc.start(now + start);
+      osc.stop(now + start + dur);
+    }
+    tone(1200, 0, 0.15, 0.3);
+    tone(1600, 0.08, 0.15, 0.3);
+    tone(2000, 0.16, 0.25, 0.25);
+  } catch (_) {}
+}
+
 // ── Client: Self view ──────────────────────────────────────────
 export async function clientSelfView(app, clientId) {
   let client = getClient(clientId);
@@ -570,6 +602,21 @@ export async function clientSelfView(app, clientId) {
   if (!client) { clearSession().then(() => loginView(app)); return; }
 
   renderClientDashboard(app, client, null, loginView);
+
+  // Real-time listener: play cha-ching on new lead/order
+  const { supabase } = await import('./supabase/client.js');
+  const channel = supabase.channel('leads-' + client.id)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'leads',
+      filter: 'client_id=eq.' + client.id,
+    }, (payload) => {
+      playChaChing();
+      const name = payload.new?.name || payload.new?.email || 'New customer';
+      showToast('New order from ' + name);
+    })
+    .subscribe();
 
   (async () => {
     try {
