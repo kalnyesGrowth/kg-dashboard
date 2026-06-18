@@ -1,0 +1,20 @@
+{
+  "name": "kg-dashboard",
+  "version": "1.0.0",
+  "description": "KalnyesGrowth Agency Dashboard",
+  "scripts": {
+    "build": "mkdir -p www && cp -r index.html app.js views.js data.js utils.js style.css manifest.json sw.js icons supabase www/",
+    "cap:sync": "npm run build && npx cap sync"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kalnyesGrowth/kg-dashboard.git"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@capacitor/cli": "^8.4.0",
+    "@capacitor/core": "^8.4.0",
+    "@capacitor/ios": "^8.4.0",
+    "@capacitor/push-notifications": "^8.1.1"
+  }
+}

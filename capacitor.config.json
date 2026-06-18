@@ -1,0 +1,14 @@
+{
+  "appId": "com.kalnyesgrowth.dashboard",
+  "appName": "KG Dashboard",
+  "webDir": "www",
+  "server": {
+    "url": "https://project-kday6.vercel.app",
+    "cleartext": false
+  },
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    }
+  }
+}
