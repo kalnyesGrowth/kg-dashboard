@@ -97,6 +97,19 @@ export async function fetchDailySeries(clientId, days) {
   return data || [];
 }
 
+// ── Daily series by date range (for custom picker) ──────────
+export async function fetchDailySeriesByRange(clientId, startDate, endDate) {
+  const { data, error } = await supabase
+    .from('daily_metrics')
+    .select('date, sessions, leads, emails, revenue, orders, add_to_carts, pageviews')
+    .eq('client_id', clientId)
+    .gte('date', startDate)
+    .lte('date', endDate)
+    .order('date', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
 // ── Team members (via edge function) ─────────────────────────
 export async function fetchTeamMembers() {
   const { data: { session } } = await supabase.auth.getSession();

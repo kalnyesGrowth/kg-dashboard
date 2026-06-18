@@ -653,14 +653,37 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
 
   const avgRating = reviews.length ? (reviews.reduce((a, r) => a + (r.rating || 0), 0) / reviews.length) : 0;
 
+  const rangeLabels = {
+    1: 'Today', 2: 'Yesterday', 7: 'Last 7 days', 30: 'Last 30 days',
+    90: 'Last 90 days', 365: 'Last 12 months', custom: 'Custom',
+  };
+
   const dashContent = `
     <div class="sp-page">
       <div class="sp-header">
         <h1 class="sp-title">Overview</h1>
-        <div class="sp-range-wrap">
-          <button class="sp-range-btn" data-range="7">Last 7 days</button>
-          <button class="sp-range-btn active" data-range="30">Last 30 days</button>
-          <button class="sp-range-btn" data-range="90">Last 90 days</button>
+        <div class="sp-date-dropdown">
+          <button class="sp-date-trigger" id="sp-date-trigger">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <span id="sp-date-label">Last 30 days</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="sp-date-popover" id="sp-date-popover">
+            <button class="sp-date-opt" data-range="1">Today</button>
+            <button class="sp-date-opt" data-range="2">Yesterday</button>
+            <div class="sp-date-divider"></div>
+            <button class="sp-date-opt" data-range="7">Last 7 days</button>
+            <button class="sp-date-opt selected" data-range="30">Last 30 days</button>
+            <button class="sp-date-opt" data-range="90">Last 90 days</button>
+            <button class="sp-date-opt" data-range="365">Last 12 months</button>
+            <div class="sp-date-divider"></div>
+            <button class="sp-date-opt" data-range="custom">Custom</button>
+            <div class="sp-date-custom-fields" id="sp-custom-fields">
+              <div><label>Start date</label><input type="date" id="sp-date-start" /></div>
+              <div><label>End date</label><input type="date" id="sp-date-end" /></div>
+              <button class="sp-date-apply" id="sp-date-apply">Apply</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -967,8 +990,8 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
     if (!root) return;
     setActiveNav('dashboard');
     root.innerHTML = dashContent;
+    wireDateDropdown();
     requestAnimationFrame(() => drawChart(currentRange));
-    // Re-wire invite button
     document.getElementById('sp-invite-btn')?.addEventListener('click', wireInviteModal);
     document.getElementById('sp-request-btn')?.addEventListener('click', () => showTicketModal(client));
   }
@@ -1029,13 +1052,13 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
   const allSeries = seriesData;
   let currentRange = 30;
 
-  function drawChart(range) {
-    currentRange = range;
+  function drawChart(rangeKey) {
+    currentRange = rangeKey;
     const canvas = document.getElementById('sp-chart');
     if (!canvas) return;
     const existing = Chart.getChart(canvas);
     if (existing) existing.destroy();
-    const series = allSeries[range] || [];
+    const series = allSeries[rangeKey] || [];
     if (!series.length) return;
 
     const labels = series.map(d => {
@@ -1123,11 +1146,71 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
     });
   }
 
-  document.querySelectorAll('.sp-range-btn[data-range]').forEach(btn => btn.addEventListener('click', () => {
-    document.querySelectorAll('.sp-range-btn[data-range]').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    drawChart(parseInt(btn.dataset.range));
-  }));
+  // Date range dropdown wiring
+  function wireDateDropdown() {
+    const trigger = document.getElementById('sp-date-trigger');
+    const popover = document.getElementById('sp-date-popover');
+    const label = document.getElementById('sp-date-label');
+    const customFields = document.getElementById('sp-custom-fields');
+    if (!trigger || !popover) return;
+
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      popover.classList.toggle('open');
+    });
+    document.addEventListener('click', (e) => {
+      if (!popover.contains(e.target) && e.target !== trigger) popover.classList.remove('open');
+    });
+
+    popover.querySelectorAll('.sp-date-opt').forEach(opt => {
+      opt.addEventListener('click', async () => {
+        const range = opt.dataset.range;
+        popover.querySelectorAll('.sp-date-opt').forEach(o => o.classList.remove('selected'));
+        opt.classList.add('selected');
+
+        if (range === 'custom') {
+          customFields.classList.add('open');
+          return;
+        }
+        customFields.classList.remove('open');
+
+        const days = parseInt(range);
+        label.textContent = rangeLabels[days] || ('Last ' + days + ' days');
+
+        if (allSeries[days]) {
+          drawChart(days);
+        } else {
+          label.textContent = rangeLabels[days] + '...';
+          try {
+            allSeries[days] = await DB.fetchDailySeries(client.id, days);
+          } catch (_) { allSeries[days] = []; }
+          label.textContent = rangeLabels[days];
+          drawChart(days);
+        }
+        popover.classList.remove('open');
+      });
+    });
+
+    document.getElementById('sp-date-apply')?.addEventListener('click', async () => {
+      const startVal = document.getElementById('sp-date-start')?.value;
+      const endVal = document.getElementById('sp-date-end')?.value;
+      if (!startVal || !endVal) return;
+      if (startVal > endVal) return;
+
+      const key = 'custom_' + startVal + '_' + endVal;
+      label.textContent = startVal + ' to ' + endVal;
+      popover.querySelectorAll('.sp-date-opt').forEach(o => o.classList.remove('selected'));
+      popover.querySelector('[data-range="custom"]')?.classList.add('selected');
+
+      try {
+        allSeries[key] = await DB.fetchDailySeriesByRange(client.id, startVal, endVal);
+      } catch (_) { allSeries[key] = []; }
+      drawChart(key);
+      popover.classList.remove('open');
+      customFields.classList.remove('open');
+    });
+  }
+  wireDateDropdown();
 
   requestAnimationFrame(() => drawChart(30));
 }
