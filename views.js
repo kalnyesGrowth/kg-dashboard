@@ -664,45 +664,65 @@ export async function clientDetailView(app, clientId) {
   renderDetail(app, client, true);
 }
 
-// ── Cash register "cha-ching" notification sound (LOUD) ───────
+// ── Cash register "CHA-CHING!" sound (MAX VOLUME) ────────────
 let _chachingCtx = null;
 export function playChaChing() {
   try {
     const ctx = _chachingCtx || (_chachingCtx = new (window.AudioContext || window.webkitAudioContext)());
     if (ctx.state === 'suspended') ctx.resume();
     const now = ctx.currentTime;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.setValueAtTime(-3, now);
+    comp.ratio.setValueAtTime(20, now);
+    comp.attack.setValueAtTime(0, now);
+    comp.release.setValueAtTime(0.05, now);
+    comp.connect(ctx.destination);
     const master = ctx.createGain();
     master.gain.setValueAtTime(1.0, now);
-    master.connect(ctx.destination);
-    function tone(freq, start, dur, gain, type) {
+    master.connect(comp);
+    function tone(freq, start, dur, vol, type) {
       const osc = ctx.createOscillator();
       const g = ctx.createGain();
-      osc.type = type || 'sine';
+      osc.type = type || 'square';
       osc.frequency.setValueAtTime(freq, now + start);
-      g.gain.setValueAtTime(gain, now + start);
+      g.gain.setValueAtTime(vol, now + start);
       g.gain.exponentialRampToValueAtTime(0.001, now + start + dur);
       osc.connect(g).connect(master);
       osc.start(now + start);
-      osc.stop(now + start + dur);
+      osc.stop(now + start + dur + 0.01);
     }
-    tone(1200, 0, 0.12, 0.8, 'square');
-    tone(1600, 0.06, 0.12, 0.8, 'square');
-    tone(2400, 0.12, 0.2, 0.7, 'sine');
-    tone(3200, 0.18, 0.3, 0.6, 'sine');
-    tone(1200, 0.45, 0.12, 0.8, 'square');
-    tone(1600, 0.51, 0.12, 0.8, 'square');
-    tone(2400, 0.57, 0.2, 0.7, 'sine');
-    tone(3200, 0.63, 0.3, 0.6, 'sine');
-    const noise = ctx.createBufferSource();
-    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.08, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * 0.3;
-    noise.buffer = buf;
-    const ng = ctx.createGain();
-    ng.gain.setValueAtTime(0.5, now);
-    ng.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-    noise.connect(ng).connect(master);
-    noise.start(now);
+    // Ring 1 - CHA
+    tone(1400, 0, 0.15, 1.0, 'square');
+    tone(1800, 0, 0.15, 1.0, 'square');
+    tone(2800, 0.04, 0.2, 0.9, 'sawtooth');
+    tone(3500, 0.08, 0.25, 0.8, 'sine');
+    // Ring 2 - CHING
+    tone(1400, 0.25, 0.15, 1.0, 'square');
+    tone(1800, 0.25, 0.15, 1.0, 'square');
+    tone(2800, 0.29, 0.2, 0.9, 'sawtooth');
+    tone(4200, 0.33, 0.35, 0.9, 'sine');
+    // Ring 3 - CHING! (higher, longer)
+    tone(1600, 0.55, 0.15, 1.0, 'square');
+    tone(2000, 0.55, 0.15, 1.0, 'square');
+    tone(3200, 0.59, 0.25, 0.9, 'sawtooth');
+    tone(4800, 0.63, 0.5, 1.0, 'sine');
+    // Metallic click/crash at each ring
+    for (const t of [0, 0.25, 0.55]) {
+      const noise = ctx.createBufferSource();
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.06, ctx.sampleRate);
+      const ch = buf.getChannelData(0);
+      for (let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1);
+      noise.buffer = buf;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(4000, now);
+      bp.Q.setValueAtTime(2, now);
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(0.8, now + t);
+      ng.gain.exponentialRampToValueAtTime(0.001, now + t + 0.06);
+      noise.connect(bp).connect(ng).connect(master);
+      noise.start(now + t);
+    }
   } catch (_) {}
 }
 
