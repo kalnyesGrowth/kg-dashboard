@@ -565,30 +565,7 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
 
   const chartSeries = revSer?.month || revSer?.week || [];
 
-  app.innerHTML = `
-    <div id="cdb-root" style="min-height:100dvh;background:#F1F4F7;font-family:'Inter',sans-serif">
-
-      <!-- Top bar -->
-      <header class="cdb-topbar">
-        <div class="cdb-topbar-logo">
-          <div class="cdb-topbar-badge">KG</div>
-          <div>
-            <div class="cdb-topbar-brand">Kalnyes Growth</div>
-            <div class="cdb-topbar-sub">Client Dashboard</div>
-          </div>
-        </div>
-        <div class="cdb-topbar-right">
-          <div class="cdb-client-chip">
-            <div class="cdb-chip-ava" style="background:${esc(client.color)}">${esc(client.initials)}</div>
-            <span class="cdb-chip-name">${esc(client.name)}</span>
-          </div>
-          <button class="cdb-logout-btn" id="cdb-logout">Log Out</button>
-        </div>
-      </header>
-
-      <!-- Body -->
-      <div class="cdb-body">
-
+  const dashContent = `
         <!-- Welcome -->
         <div class="cdb-welcome-row">
           <div>
@@ -759,13 +736,67 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
             </div>
           </div>
           <a href="mailto:jessyt440@gmail.com" class="cdb-help-cta">Message Your Manager →</a>
-        </div>
+        </div>`;
 
+  app.innerHTML = `
+    <div class="app-layout">
+      <div class="drawer-overlay" id="drawer-overlay"></div>
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-logo">
+          <div class="sidebar-logo-mark">KG</div>
+          <div><div class="sidebar-logo-text">Kalnyesgrowth</div></div>
+        </div>
+        <nav class="sidebar-nav">
+          <div class="nav-section-label">Overview</div>
+          <button class="nav-link active" data-nav="dashboard"><span class="nav-icon">📊</span> Dashboard</button>
+          <button class="nav-link" data-nav="tickets"><span class="nav-icon">🎫</span> Requests</button>
+          <button class="nav-link" data-nav="website"><span class="nav-icon">🌐</span> My Website</button>
+          <button class="nav-link" data-nav="reviews"><span class="nav-icon">⭐</span> Reviews</button>
+          <div class="nav-section-label">Account</div>
+          <button class="nav-link" data-nav="help"><span class="nav-icon">💬</span> Get Help</button>
+        </nav>
+        <div class="sidebar-footer">
+          <div class="sidebar-user">
+            <div class="sidebar-avatar" style="background:${esc(client.color)}">${esc(client.initials)}</div>
+            <div class="sidebar-user-name">${esc(client.name)}</div>
+          </div>
+          <button class="sidebar-signout" id="cdb-logout">Sign out</button>
+        </div>
+      </aside>
+      <div class="mobile-header">
+        <button class="hamburger" id="hamburger">${HAMBURGER}</button>
+        <div style="flex:1;font-size:0.85rem;font-weight:700;color:rgba(255,255,255,0.9);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:-0.01em">${esc(client.name)}</div>
+        <div class="mobile-actions">
+          <button class="mobile-icon-btn" id="mobile-logout" title="Sign out">⏻</button>
+        </div>
       </div>
+      <main class="main-content">
+        <div id="cdb-root" style="font-family:'Inter',sans-serif">
+          ${dashContent}
+        </div>
+      </main>
     </div>`;
+
+  // Wire sidebar
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('drawer-overlay');
+  const openSb  = () => { sidebar?.classList.add('open'); overlay?.classList.add('visible'); };
+  const closeSb = () => { sidebar?.classList.remove('open'); overlay?.classList.remove('visible'); };
+  document.getElementById('hamburger')?.addEventListener('click', openSb);
+  overlay?.addEventListener('click', closeSb);
+
+  document.querySelectorAll('[data-nav]').forEach(btn => btn.addEventListener('click', () => {
+    closeSb();
+    const nav = btn.dataset.nav;
+    if (nav === 'website') window.open('https://' + (client.domain || ''), '_blank');
+    else if (nav === 'reviews') window.open('https://business.google.com', '_blank');
+    else if (nav === 'help') window.location.href = 'mailto:jessyt440@gmail.com';
+    else if (nav === 'tickets') showTicketModal(client);
+  }));
 
   // Wire events
   document.getElementById('cdb-logout')?.addEventListener('click', () => clearSession().then(() => loginViewFn(app)));
+  document.getElementById('mobile-logout')?.addEventListener('click', () => clearSession().then(() => loginViewFn(app)));
 
   const composeHandler = () => showComposeModal(app, client, subscribers);
   document.getElementById('cdb-compose')?.addEventListener('click', composeHandler);
