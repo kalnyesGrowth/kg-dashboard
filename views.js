@@ -712,7 +712,7 @@ export async function clientSelfView(app, clientId) {
 
   renderClientDashboard(app, client, null, loginView);
 
-  // Real-time listener: play cha-ching on new lead/order
+  // Real-time listener: play cha-ching on new quotation
   const { supabase } = await import('./supabase/client.js');
   const channel = supabase.channel('leads-' + client.id)
     .on('postgres_changes', {
@@ -723,7 +723,7 @@ export async function clientSelfView(app, clientId) {
     }, (payload) => {
       playChaChing();
       const name = payload.new?.name || payload.new?.email || 'New customer';
-      showToast('New order from ' + name);
+      showToast('New quotation from ' + name);
     })
     .subscribe();
 
@@ -805,7 +805,6 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
   }
 
   const sessionsTrend = calcTrend(s30, 'sessions');
-  const ordersTrend = calcTrend(s30, 'orders');
   const emailsTrend = calcTrend(s30, 'emails');
   const leadsTrend = calcTrend(s30, 'leads');
 
@@ -854,12 +853,10 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
           <div class="sp-sparkline-wrap">${spSparkline(s30, 'sessions')}</div>
         </div>
         <div class="sp-stat">
-          <div class="sp-stat-title">Total orders</div>
+          <div class="sp-stat-title">Total quotations</div>
           <div class="sp-stat-row">
-            <span class="sp-stat-num">${statTotal(s30, 'orders').toLocaleString()}</span>
-            ${trendHtml(ordersTrend)}
+            <span class="sp-stat-num">${leads.length.toLocaleString()}</span>
           </div>
-          <div class="sp-sparkline-wrap">${spSparkline(s30, 'orders')}</div>
         </div>
         <div class="sp-stat">
           <div class="sp-stat-title">Emails collected</div>
@@ -996,7 +993,7 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
         </div>
         <nav class="sidebar-nav">
           <button class="nav-link active" data-nav="dashboard"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span> Home</button>
-          <button class="nav-link" data-nav="orders"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><line x1="10" y1="3" x2="10" y2="9"/></svg></span> Orders</button>
+          <button class="nav-link" data-nav="orders"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><line x1="10" y1="3" x2="10" y2="9"/></svg></span> Quotations</button>
           <button class="nav-link" data-nav="reviews"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span> Reviews</button>
           <button class="nav-link" data-nav="tickets"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg></span> Requests</button>
         </nav>
@@ -1041,8 +1038,8 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
     root.innerHTML = `
       <div class="sp-page">
         <div class="sp-header">
-          <h1 class="sp-title">Orders</h1>
-          <div style="font-size:13px;color:#6d7175">${leads.length} submission${leads.length !== 1 ? 's' : ''}</div>
+          <h1 class="sp-title">Quotations</h1>
+          <div style="font-size:13px;color:#6d7175">${leads.length} quotation${leads.length !== 1 ? 's' : ''}</div>
         </div>
         ${leads.length ? `
         <div class="sp-card" style="padding:0;overflow:hidden">
@@ -1074,7 +1071,7 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
         <div class="sp-card">
           <div class="sp-empty">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><line x1="10" y1="3" x2="10" y2="9"/></svg>
-            <p>Customer submissions from your website will appear here</p>
+            <p>Quote requests from your website will appear here</p>
           </div>
         </div>`}
       </div>`;
