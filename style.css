@@ -80,6 +80,11 @@ html, body {
   z-index: 300;
   transition: transform 0.2s ease;
   pointer-events: none;
+  opacity: 0;
+}
+.ptr-indicator.pulling,
+.ptr-indicator.refreshing {
+  opacity: 1;
 }
 .ptr-indicator.pulling {
   transition: none;
