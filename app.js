@@ -56,6 +56,11 @@ window.addEventListener('DOMContentLoaded', route);
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data?.type === 'cha-ching') {
+      import('./views.js').then(m => { if (m.playChaChing) m.playChaChing(); });
+    }
+  });
 }
 
 // ── Pull-to-refresh ───────────────────────────────────────────

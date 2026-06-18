@@ -1,5 +1,5 @@
 const DEV = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
-const CACHE = 'kg-dash-v17';
+const CACHE = 'kg-dash-v18';
 const ASSETS = [
   '/',
   '/index.html',
@@ -44,7 +44,11 @@ self.addEventListener('push', e => {
       renotify: true,
       requireInteraction: true,
       data: { url: data.url }
-    })
+    }).then(() =>
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+        for (const c of clients) c.postMessage({ type: 'cha-ching', lead: data.title });
+      })
+    )
   );
 });
 

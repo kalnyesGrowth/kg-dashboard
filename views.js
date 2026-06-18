@@ -666,7 +666,7 @@ export async function clientDetailView(app, clientId) {
 
 // ── Cash register "cha-ching" notification sound (LOUD) ───────
 let _chachingCtx = null;
-function playChaChing() {
+export function playChaChing() {
   try {
     const ctx = _chachingCtx || (_chachingCtx = new (window.AudioContext || window.webkitAudioContext)());
     if (ctx.state === 'suspended') ctx.resume();
