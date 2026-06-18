@@ -14,9 +14,7 @@
   })();
 
   var CLIENT_ID = script.getAttribute('data-client');
-  // v2: point this at your Supabase edge function or REST endpoint
-  var ENDPOINT  = 'https://boddsbxlaytcrkpuckyn.supabase.co/rest/v1/events';
-  var API_KEY   = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJvZGRzYnhsYXl0Y3JrcHVja3luIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MTY1MjMsImV4cCI6MjA5MzA5MjUyM30.0pz_P4IMtlE6b7edZa-G82P9-PyNYecm1uMbhZiURYo';
+  var ENDPOINT  = 'https://boddsbxlaytcrkpuckyn.supabase.co/functions/v1/track-event';
 
   if (!CLIENT_ID) { console.warn('[KGTracker] Missing data-client attribute.'); return; }
 
@@ -58,18 +56,15 @@
       page:       location.pathname,
       referrer:   document.referrer || null,
       ua:         navigator.userAgent,
-      ts:         new Date().toISOString(),
       payload:    payload || null,
     });
 
-    // Use sendBeacon when available (works on page unload too)
     if (navigator.sendBeacon) {
-      var blob = new Blob([body], { type: 'application/json' });
-      navigator.sendBeacon(ENDPOINT + '?apikey=' + API_KEY, blob);
+      navigator.sendBeacon(ENDPOINT, new Blob([body], { type: 'application/json' }));
     } else {
       fetch(ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': API_KEY },
+        headers: { 'Content-Type': 'application/json' },
         body: body,
         keepalive: true,
       }).catch(function () {});

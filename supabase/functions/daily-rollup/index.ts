@@ -16,9 +16,8 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 );
 
-Deno.serve(async () => {
-  // Default: rollup yesterday. Pass ?date=YYYY-MM-DD to backfill a specific day.
-  const url     = new URL('http://x');
+Deno.serve(async (req) => {
+  const url     = new URL(req.url);
   const target  = url.searchParams.get('date') || yesterdayStr();
 
   console.log(`Rolling up events for ${target}`);
@@ -44,14 +43,14 @@ async function rollupClient(clientId: string, date: string) {
 
   const { data: events, error } = await supabase
     .from('events')
-    .select('event_type, payload')
+    .select('event_type, session_id, payload')
     .eq('client_id', clientId)
     .gte('ts', start)
     .lte('ts', end);
 
   if (error) return { clientId, error: error.message };
 
-  const sessions    = new Set(events.filter(e => e.event_type === 'session_start').map(e => e.payload?.session_id)).size;
+  const sessions    = new Set(events.filter(e => e.event_type === 'session_start').map(e => e.session_id)).size;
   const pageviews   = events.filter(e => e.event_type === 'pageview').length;
   const leads       = events.filter(e => e.event_type === 'lead').length;
   const emails      = events.filter(e => e.event_type === 'email_capture').length;
