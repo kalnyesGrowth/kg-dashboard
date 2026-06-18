@@ -314,6 +314,7 @@ async function initPushNotifications(clientId) {
     return;
   }
   if (perm === 'denied') return;
+  if (sessionStorage.getItem('push-dismissed')) return;
   setTimeout(() => {
     const existing = document.getElementById('push-banner');
     if (existing) return;
@@ -352,26 +353,32 @@ async function initPushNotifications(clientId) {
 
 async function subscribePush(clientId) {
   try {
+    if (!('serviceWorker' in navigator)) { showToast('Push not supported: no service worker'); return; }
+    if (!('PushManager' in window)) { showToast('Push not supported on this browser'); return; }
     const reg = await navigator.serviceWorker.ready;
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
       const perm = await Notification.requestPermission();
-      if (perm !== 'granted') return;
+      if (perm !== 'granted') { showToast('Notification permission denied'); return; }
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC)
       });
     }
     const key = sub.toJSON();
+    if (!key.keys?.p256dh || !key.keys?.auth) { showToast('Push keys missing from subscription'); return; }
     const { supabase } = await import('./supabase/client.js');
-    await supabase.from('push_subscriptions').upsert({
+    const { error } = await supabase.from('push_subscriptions').upsert({
       client_id: clientId,
       endpoint: key.endpoint,
       p256dh: key.keys.p256dh,
       auth: key.keys.auth
     }, { onConflict: 'client_id,endpoint' });
+    if (error) { showToast('Save failed: ' + error.message); return; }
+    showToast('Notifications enabled!');
   } catch (e) {
     console.error('Push subscription failed:', e);
+    showToast('Push error: ' + (e.message || e));
   }
 }
 
