@@ -2256,7 +2256,7 @@ export async function leadDetailView(app, leadId) {
       if (!area || area.querySelector('textarea')) return;
       area.innerHTML = `
         <div class="card" style="padding:14px;margin-bottom:10px">
-          <textarea id="note-input" rows="3" placeholder="Add a note..." style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.82rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none;resize:vertical"></textarea>
+          <textarea id="note-input" rows="3" placeholder="Add a note..." style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:16px;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none;resize:vertical"></textarea>
           <div style="display:flex;gap:8px;margin-top:8px">
             <button class="btn-pill" id="save-note" style="font-size:0.72rem;padding:7px 14px">Save</button>
             <button class="btn-pill-outline" id="cancel-note" style="font-size:0.72rem;padding:7px 14px">Cancel</button>
@@ -2514,7 +2514,7 @@ function showAddContactModal(clients, contactsList, refreshFn) {
       <div class="modal-body">
         <div class="form-group">
           <label>Client</label>
-          <select id="ac-client" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.88rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
+          <select id="ac-client" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:16px;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
             ${clients.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
           </select>
         </div>
@@ -2578,13 +2578,13 @@ function showCsvImportModal(clients, contactsList, refreshFn) {
       <div class="modal-body">
         <div class="form-group">
           <label>Client</label>
-          <select id="csv-client" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.88rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
+          <select id="csv-client" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:16px;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
             ${clients.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
           </select>
         </div>
         <div class="form-group">
           <label>CSV file (with headers: name, email, phone)</label>
-          <input id="csv-file" type="file" accept=".csv" style="font-size:0.82rem" />
+          <input id="csv-file" type="file" accept=".csv" style="font-size:16px" />
         </div>
         <div id="csv-preview"></div>
         <div class="modal-err" id="csv-err"></div>
@@ -3059,7 +3059,7 @@ function showAddStepModal(seqId, seq, refreshFn) {
         </div>
         <div class="form-group">
           <label>Email body (use {{first_name}}, {{business_name}} for personalization)</label>
-          <textarea id="step-body" rows="6" placeholder="Email content..." style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.82rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none;resize:vertical"></textarea>
+          <textarea id="step-body" rows="6" placeholder="Email content..." style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:16px;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none;resize:vertical"></textarea>
         </div>
         <div class="modal-err" id="step-err"></div>
       </div>
@@ -3108,7 +3108,7 @@ function showCreateSeqModal(clients, sequencesList, refreshFn) {
       <div class="modal-body">
         <div class="form-group">
           <label>Client</label>
-          <select id="cseq-client" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.88rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
+          <select id="cseq-client" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:16px;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
             ${clients.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
           </select>
         </div>
@@ -3118,7 +3118,7 @@ function showCreateSeqModal(clients, sequencesList, refreshFn) {
         </div>
         <div class="form-group">
           <label>Trigger</label>
-          <select id="cseq-trigger" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.88rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
+          <select id="cseq-trigger" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:16px;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
             <option value="manual">Manual enrollment</option>
             <option value="new_subscriber">On new subscriber</option>
             <option value="new_lead">On new lead</option>
@@ -3172,7 +3172,7 @@ function showTemplateModal(clients, sequencesList, refreshFn) {
       <div class="modal-body">
         <div class="form-group">
           <label>Client</label>
-          <select id="tpl-client" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.88rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
+          <select id="tpl-client" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:16px;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
             ${clients.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
           </select>
         </div>
@@ -3231,7 +3231,7 @@ function showTicketModal(client) {
       <div class="modal-body">
         <div class="form-group">
           <label>Category</label>
-          <select id="tk-category" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.88rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
+          <select id="tk-category" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:16px;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
             <option value="hours">Update Hours</option>
             <option value="menu_services">Update Menu / Services</option>
             <option value="photos">Update Photos</option>
@@ -3242,7 +3242,7 @@ function showTicketModal(client) {
         </div>
         <div class="form-group">
           <label>What do you need changed?</label>
-          <textarea id="tk-description" rows="4" placeholder="Describe what you'd like us to change..." style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.82rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none;resize:vertical"></textarea>
+          <textarea id="tk-description" rows="4" placeholder="Describe what you'd like us to change..." style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:16px;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none;resize:vertical"></textarea>
         </div>
         <div class="modal-err" id="tk-err"></div>
       </div>

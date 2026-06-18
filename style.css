@@ -740,7 +740,7 @@ html, body {
 .cdb-em-num { font-size: 1.05rem; font-weight: 800; color: #111827; }
 .cdb-em-label { font-size: 0.68rem; color: #9CA3AF; margin-top: 1px; }
 
-.cdb-search-input { width: 100%; padding: 8px 11px; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 0.78rem; font-family: inherit; color: #111827; background: #F9FAFB; outline: none; margin-bottom: 8px; }
+.cdb-search-input { width: 100%; padding: 8px 11px; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 16px; font-family: inherit; color: #111827; background: #F9FAFB; outline: none; margin-bottom: 8px; }
 .cdb-search-input:focus { border-color: #F97316; }
 
 .cdb-sub-row { display: flex; align-items: center; gap: 9px; padding: 8px 0; border-bottom: 1px solid #F3F4F6; }
@@ -935,7 +935,7 @@ html, body {
   padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  font-size: 0.88rem;
+  font-size: 16px;
   font-family: inherit;
   color: var(--text-primary);
   background: var(--soft-gray);
@@ -1352,7 +1352,7 @@ html, body {
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  font-size: 0.78rem;
+  font-size: 16px;
   font-family: inherit;
   color: var(--text-primary);
   background: var(--white);
@@ -1558,7 +1558,7 @@ html, body {
 }
 .sp-date-custom-fields input[type="date"] {
   width: 100%; padding: 6px 8px; border: 1px solid #8c9196; border-radius: 8px;
-  font-size: 13px; font-family: inherit; color: #303030; background: #fff;
+  font-size: 16px; font-family: inherit; color: #303030; background: #fff;
   line-height: 20px; transition: border-color 0.1s;
 }
 .sp-date-custom-fields input[type="date"]:focus {
@@ -1680,7 +1680,7 @@ html, body {
 .sp-field label { display: block; font-size: 13px; font-weight: 500; color: #202223; margin-bottom: 6px; }
 .sp-field input {
   width: 100%; padding: 8px 12px; border: 1px solid #c9cccf; border-radius: 8px;
-  font-size: 14px; font-family: inherit; color: #202223; outline: none; box-sizing: border-box;
+  font-size: 16px; font-family: inherit; color: #202223; outline: none; box-sizing: border-box;
 }
 .sp-field input:focus { border-color: #0064E0; }
 
