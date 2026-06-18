@@ -664,9 +664,8 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
         <h1 class="sp-title">Overview</h1>
         <div class="sp-date-dropdown">
           <button class="sp-date-trigger" id="sp-date-trigger">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
             <span id="sp-date-label">Last 30 days</span>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><polyline points="6 9 12 15 18 9"/></svg>
+            <svg class="sp-caret" viewBox="0 0 20 20" fill="none"><path d="M6 8l4 4 4-4" stroke="#5c5f62" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
           <div class="sp-date-popover" id="sp-date-popover">
             <button class="sp-date-opt" data-range="1">Today</button>
