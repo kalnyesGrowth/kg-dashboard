@@ -647,9 +647,9 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
   }
 
   const sessionsTrend = calcTrend(s30, 'sessions');
-  const leadsTrend = calcTrend(s30, 'leads');
+  const ordersTrend = calcTrend(s30, 'orders');
   const emailsTrend = calcTrend(s30, 'emails');
-  const pvTrend = calcTrend(s30, 'pageviews');
+  const leadsTrend = calcTrend(s30, 'leads');
 
   const avgRating = reviews.length ? (reviews.reduce((a, r) => a + (r.rating || 0), 0) / reviews.length) : 0;
 
@@ -666,7 +666,7 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
 
       <div class="sp-stats">
         <div class="sp-stat">
-          <div class="sp-stat-title">Website visitors</div>
+          <div class="sp-stat-title">Online sessions</div>
           <div class="sp-stat-row">
             <span class="sp-stat-num">${statTotal(s30, 'sessions').toLocaleString()}</span>
             ${trendHtml(sessionsTrend)}
@@ -674,15 +674,15 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
           <div class="sp-sparkline-wrap">${spSparkline(s30, 'sessions')}</div>
         </div>
         <div class="sp-stat">
-          <div class="sp-stat-title">New leads</div>
+          <div class="sp-stat-title">Total orders</div>
           <div class="sp-stat-row">
-            <span class="sp-stat-num">${statTotal(s30, 'leads').toLocaleString()}</span>
-            ${trendHtml(leadsTrend)}
+            <span class="sp-stat-num">${statTotal(s30, 'orders').toLocaleString()}</span>
+            ${trendHtml(ordersTrend)}
           </div>
-          <div class="sp-sparkline-wrap">${spSparkline(s30, 'leads')}</div>
+          <div class="sp-sparkline-wrap">${spSparkline(s30, 'orders')}</div>
         </div>
         <div class="sp-stat">
-          <div class="sp-stat-title">Email captures</div>
+          <div class="sp-stat-title">Emails collected</div>
           <div class="sp-stat-row">
             <span class="sp-stat-num">${statTotal(s30, 'emails').toLocaleString()}</span>
             ${trendHtml(emailsTrend)}
@@ -690,12 +690,12 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
           <div class="sp-sparkline-wrap">${spSparkline(s30, 'emails')}</div>
         </div>
         <div class="sp-stat">
-          <div class="sp-stat-title">Page views</div>
+          <div class="sp-stat-title">Total leads</div>
           <div class="sp-stat-row">
-            <span class="sp-stat-num">${statTotal(s30, 'pageviews').toLocaleString()}</span>
-            ${trendHtml(pvTrend)}
+            <span class="sp-stat-num">${statTotal(s30, 'leads').toLocaleString()}</span>
+            ${trendHtml(leadsTrend)}
           </div>
-          <div class="sp-sparkline-wrap">${spSparkline(s30, 'pageviews')}</div>
+          <div class="sp-sparkline-wrap">${spSparkline(s30, 'leads')}</div>
         </div>
       </div>
 
@@ -1052,7 +1052,7 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
     // Also update stat cards
     const statEls = document.querySelectorAll('.sp-stat');
     if (statEls.length >= 4) {
-      const keys = ['sessions', 'leads', 'emails', 'pageviews'];
+      const keys = ['sessions', 'orders', 'emails', 'leads'];
       keys.forEach((key, i) => {
         const el = statEls[i];
         if (!el) return;
