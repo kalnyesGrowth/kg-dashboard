@@ -63,6 +63,13 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+if (new URLSearchParams(location.search).get('cha-ching')) {
+  window.addEventListener('load', () => {
+    import('./views.js').then(m => { if (m.playChaChing) m.playChaChing(); });
+    history.replaceState(null, '', location.pathname + location.hash);
+  });
+}
+
 // ── Pull-to-refresh ───────────────────────────────────────────
 (function() {
   let startY = 0, pulling = false, dist = 0;

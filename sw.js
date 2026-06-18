@@ -1,5 +1,5 @@
 const DEV = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
-const CACHE = 'kg-dash-v18';
+const CACHE = 'kg-dash-v19';
 const ASSETS = [
   '/',
   '/index.html',
@@ -58,9 +58,10 @@ self.addEventListener('notificationclick', e => {
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
       for (const c of clients) {
+        c.postMessage({ type: 'cha-ching', lead: 'notification-tap' });
         if (new URL(c.url).pathname === url && 'focus' in c) return c.focus();
       }
-      return self.clients.openWindow(url);
+      return self.clients.openWindow(url + '?cha-ching=1');
     })
   );
 });
