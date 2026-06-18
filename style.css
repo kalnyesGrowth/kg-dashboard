@@ -1467,3 +1467,80 @@ html, body {
   border: 1.5px solid var(--border);
   color: var(--text-secondary);
 }
+
+/* ── Client Dashboard (cd-*) ───────────────────────────────────── */
+.cd-page { padding: 32px 36px; max-width: 1200px; }
+.cd-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
+.cd-greeting { font-size: 1.65rem; font-weight: 800; color: var(--text-primary); letter-spacing: -0.02em; margin: 0; }
+.cd-date { font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px; }
+.cd-header-right { display: flex; align-items: center; gap: 12px; }
+.cd-avatar { width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 0.9rem; }
+
+.cd-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+.cd-stat-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; }
+.cd-stat-label { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.03em; }
+.cd-stat-value { font-size: 2.2rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
+.cd-stat-change { font-size: 0.78rem; color: var(--text-secondary); margin-top: 6px; }
+.cd-stat-change.cd-up { color: #22C55E; }
+
+.cd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+
+.cd-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 22px; }
+.cd-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.cd-card-title { font-size: 1rem; font-weight: 700; color: var(--text-primary); margin: 0; }
+
+.cd-leads-list { display: flex; flex-direction: column; gap: 4px; }
+.cd-lead-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; transition: background 0.15s; }
+.cd-lead-row:hover { background: var(--bg-secondary); }
+.cd-lead-ava { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 0.85rem; flex-shrink: 0; }
+.cd-lead-info { flex: 1; min-width: 0; }
+.cd-lead-name { font-size: 0.9rem; font-weight: 600; color: var(--text-primary); }
+.cd-lead-email { font-size: 0.78rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-lead-badge { font-size: 0.68rem; font-weight: 700; color: #fff; padding: 3px 10px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
+
+.cd-visitor-total { font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); }
+.cd-chart-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+.cd-tab { background: var(--bg-secondary); border: none; padding: 6px 14px; border-radius: 6px; font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); cursor: pointer; transition: all 0.15s; }
+.cd-tab.active { background: #3B82F6; color: #fff; }
+.cd-tab:hover:not(.active) { background: var(--border); }
+.cd-chart-wrap { height: 200px; }
+
+.cd-reviews-card { margin-bottom: 20px; }
+.cd-reviews-grid { display: grid; grid-template-columns: auto 1fr 1fr 1fr; gap: 16px; align-items: start; }
+.cd-review-summary { text-align: center; padding: 12px 20px; background: var(--bg-secondary); border-radius: 10px; }
+.cd-review-score { font-size: 2.4rem; font-weight: 800; color: var(--text-primary); line-height: 1; }
+.cd-review-stars { color: #F59E0B; font-size: 1.1rem; margin: 6px 0 4px; letter-spacing: 2px; }
+.cd-review-count { font-size: 0.75rem; color: var(--text-secondary); }
+.cd-review-item { background: var(--bg-secondary); border-radius: 10px; padding: 14px; }
+.cd-review-top { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.cd-review-ava { width: 32px; height: 32px; border-radius: 50%; background: #3B82F6; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem; flex-shrink: 0; }
+.cd-review-author { font-size: 0.85rem; font-weight: 600; color: var(--text-primary); }
+.cd-review-date { font-size: 0.72rem; color: var(--text-secondary); }
+.cd-review-text { font-size: 0.82rem; color: var(--text-secondary); line-height: 1.5; margin: 0; }
+
+.cd-activity-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.cd-activity-row:last-child { border-bottom: none; }
+.cd-activity-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.cd-activity-info { flex: 1; min-width: 0; }
+.cd-activity-type { font-size: 0.85rem; font-weight: 500; color: var(--text-primary); text-transform: capitalize; }
+.cd-activity-page { font-size: 0.75rem; color: var(--text-secondary); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-activity-time { font-size: 0.75rem; color: var(--text-secondary); flex-shrink: 0; }
+
+.cd-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cd-action-btn { display: flex; align-items: center; gap: 8px; padding: 12px 14px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; font-size: 0.82rem; font-weight: 500; color: var(--text-primary); cursor: pointer; transition: all 0.15s; text-decoration: none; }
+.cd-action-btn:hover { background: var(--border); }
+.cd-action-btn svg { color: var(--text-secondary); flex-shrink: 0; }
+
+.cd-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 16px; gap: 12px; }
+.cd-empty p { font-size: 0.82rem; color: var(--text-secondary); text-align: center; margin: 0; }
+
+@media (max-width: 768px) {
+  .cd-page { padding: 20px 16px; }
+  .cd-greeting { font-size: 1.3rem; }
+  .cd-stats { grid-template-columns: 1fr; gap: 10px; }
+  .cd-grid { grid-template-columns: 1fr; }
+  .cd-reviews-grid { grid-template-columns: 1fr; }
+  .cd-review-summary { display: flex; align-items: center; gap: 16px; text-align: left; }
+  .cd-actions { grid-template-columns: 1fr; }
+  .cd-stat-value { font-size: 1.8rem; }
+}

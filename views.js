@@ -522,7 +522,7 @@ export async function clientSelfView(app, clientId) {
   // Fetch live data in background and re-render
   (async () => {
     try {
-      const [metrics, todayLive, sw, sm, sa, liveEmails, recentEvents, allSubs] = await Promise.all([
+      const [metrics, todayLive, sw, sm, sa, liveEmails, recentEvents, allSubs, leadData, reviewData] = await Promise.all([
         DB.fetchMetricsSummary(client.id),
         DB.fetchLiveTodayMetrics(client.id),
         DB.fetchRevenueSeries(client.id, 7),
@@ -531,6 +531,8 @@ export async function clientSelfView(app, clientId) {
         DB.fetchRecentEmails(client.id),
         DB.fetchRecentEvents(client.id, 20),
         DB.fetchAllSubscribers(client.id),
+        DB.fetchLeads(client.id).catch(() => []),
+        DB.fetchReviews(client.id).catch(() => []),
       ]);
       if (!document.getElementById('cdb-root')) return;
       const patchedMetrics = { ...metrics };
@@ -543,200 +545,180 @@ export async function clientSelfView(app, clientId) {
         recentEmails: liveEmails,
         recentEvents,
         subscribers: allSubs,
+        leads: leadData || [],
+        reviews: reviewData || [],
       }, loginView);
     } catch (_) {}
   })();
 }
 
-// ── Client Self Dashboard (mockup-style) ───────────────────────
+// ── Client Self Dashboard ──────────────────────────────────────
 function renderClientDashboard(app, client, liveData, loginViewFn) {
   const metrics      = liveData?.metrics       || client.metrics;
   const revSer       = liveData?.revenueSeries  || client.revenueSeries;
   const recentEvents = liveData?.recentEvents   || [];
   const subscribers  = liveData?.subscribers    || [];
+  const leads        = liveData?.leads          || [];
+  const reviews      = liveData?.reviews        || [];
   const m            = metrics;
 
-  // Count new subscribers this calendar month
-  const now = new Date();
-  const newThisMonth = subscribers.filter(s => {
-    const d = new Date(s.date || s.created_at || '');
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-  }).length;
+  const serWeek = revSer?.week || [];
+  const serMonth = revSer?.month || [];
+  const serAll = revSer?.all || [];
 
-  const chartSeries = revSer?.month || revSer?.week || [];
+  const today = new Date();
+  const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
+  const stageColors = { new:'#3B82F6', contacted:'#F59E0B', quoted:'#8B5CF6', won:'#22C55E', lost:'#EF4444' };
 
   const dashContent = `
-        <!-- Welcome -->
-        <div class="cdb-welcome-row">
-          <div>
-            <h2 class="cdb-welcome-h">${greeting()}, ${esc(client.name.split(' ')[0])} 👋</h2>
-            <p class="cdb-welcome-p">Here's how your business is performing — updated daily.</p>
-          </div>
-          <div class="cdb-status-pill">
-            <div class="cdb-status-dot"></div>
-            All systems live
-          </div>
+    <div class="cd-page">
+      <div class="cd-header">
+        <div>
+          <h1 class="cd-greeting">${greeting()}, ${esc(client.name.split(' ')[0])}</h1>
+          <p class="cd-date">${dateStr}</p>
         </div>
-
-        <!-- Stat cards -->
-        <div class="cdb-sec-label">This Month at a Glance</div>
-        <div class="cdb-stats-grid">
-          <div class="cdb-stat-card">
-            <div class="cdb-stat-top">
-              <div class="cdb-stat-icon" style="background:#FFF7ED">📧</div>
-              <span class="cdb-stat-badge" style="background:#FFF7ED;color:#EA580C">+${newThisMonth} this mo.</span>
-            </div>
-            <div class="cdb-stat-num">${subscribers.length.toLocaleString()}</div>
-            <div class="cdb-stat-label">Email Subscribers</div>
-            <div class="cdb-stat-sub">Total active contacts</div>
-          </div>
-          <div class="cdb-stat-card">
-            <div class="cdb-stat-top">
-              <div class="cdb-stat-icon" style="background:#EFF6FF">📊</div>
-              <span class="cdb-stat-badge" style="background:#EFF6FF;color:#1D4ED8">This month</span>
-            </div>
-            <div class="cdb-stat-num">${num(m.sessions.month)}</div>
-            <div class="cdb-stat-label">Website Visitors</div>
-            <div class="cdb-stat-sub">Sessions tracked this month</div>
-          </div>
-          <div class="cdb-stat-card">
-            <div class="cdb-stat-top">
-              <div class="cdb-stat-icon" style="background:#F0FDF4">📩</div>
-              <span class="cdb-stat-badge" style="background:#F0FDF4;color:#15803D">This month</span>
-            </div>
-            <div class="cdb-stat-num">${num(m.leads.month)}</div>
-            <div class="cdb-stat-label">Quote Requests</div>
-            <div class="cdb-stat-sub">New leads captured</div>
-          </div>
-          <div class="cdb-stat-card">
-            <div class="cdb-stat-top">
-              <div class="cdb-stat-icon" style="background:#F5F3FF">💰</div>
-              <span class="cdb-stat-badge" style="background:#F5F3FF;color:#6D28D9">Revenue</span>
-            </div>
-            <div class="cdb-stat-num">${fmt(m.revenue.month)}</div>
-            <div class="cdb-stat-label">Monthly Revenue</div>
-            <div class="cdb-stat-sub">Tracked this month</div>
-          </div>
+        <div class="cd-header-right">
+          <div class="cd-avatar" style="background:${esc(client.color)}">${esc(client.initials)}</div>
         </div>
+      </div>
 
-        <!-- Analytics chart -->
-        <div class="cdb-sec-label">Website Activity</div>
-        <div class="cdb-chart-card">
-          <div class="cdb-chart-header">
-            <div style="display:flex;align-items:center;gap:10px">
-              <div class="cdb-card-icon-wrap" style="background:#EFF6FF">📈</div>
-              <div>
-                <div class="cdb-chart-title">Visitor Traffic</div>
-                <div class="cdb-chart-sub">Last 30 days · tracked by KG</div>
+      <div class="cd-stats">
+        <div class="cd-stat-card">
+          <div class="cd-stat-label">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            New Leads
+          </div>
+          <div class="cd-stat-value" style="color:#3B82F6">${num(m.leads.month)}</div>
+          <div class="cd-stat-change cd-up">This month</div>
+        </div>
+        <div class="cd-stat-card">
+          <div class="cd-stat-label">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22C55E" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+            Contacts
+          </div>
+          <div class="cd-stat-value" style="color:#22C55E">${subscribers.length.toLocaleString()}</div>
+          <div class="cd-stat-change cd-up">Total active</div>
+        </div>
+        <div class="cd-stat-card">
+          <div class="cd-stat-label">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            Website Visitors
+          </div>
+          <div class="cd-stat-value" style="color:#8B5CF6">${num(m.sessions.month)}</div>
+          <div class="cd-stat-change cd-up">This month</div>
+        </div>
+      </div>
+
+      <div class="cd-grid">
+        <div class="cd-card">
+          <div class="cd-card-top">
+            <h3 class="cd-card-title">Recent Leads</h3>
+          </div>
+          <div class="cd-leads-list">
+            ${leads.length ? leads.slice(0, 5).map(l => `
+            <div class="cd-lead-row">
+              <div class="cd-lead-ava" style="background:${stageColors[l.stage] || '#94A3B8'}">${esc((l.name || 'L')[0].toUpperCase())}</div>
+              <div class="cd-lead-info">
+                <div class="cd-lead-name">${esc(l.name || 'Unknown')}</div>
+                <div class="cd-lead-email">${esc(l.email || l.phone || '')}</div>
               </div>
-            </div>
+              <span class="cd-lead-badge" style="background:${stageColors[l.stage] || '#94A3B8'}">${esc((l.stage || 'new').toUpperCase())}</span>
+            </div>`).join('') : `
+            <div class="cd-empty">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+              <p>New leads from your website will appear here</p>
+            </div>`}
           </div>
-          <div style="padding:0 20px 4px;height:180px">
+        </div>
+
+        <div class="cd-card">
+          <div class="cd-card-top">
+            <h3 class="cd-card-title">Website Visitors</h3>
+            <span class="cd-visitor-total">Visitors: ${num(m.sessions.month)}</span>
+          </div>
+          <div class="cd-chart-tabs">
+            <button class="cd-tab active" data-range="7">7 days</button>
+            <button class="cd-tab" data-range="30">30 days</button>
+            <button class="cd-tab" data-range="90">90 days</button>
+          </div>
+          <div class="cd-chart-wrap">
             <canvas id="cdb-chart"></canvas>
           </div>
-          <div class="cdb-chart-stats">
-            <div class="cdb-a-stat"><div class="cdb-a-num">${num(m.sessions.month)}</div><div class="cdb-a-label">Total Visitors</div></div>
-            <div class="cdb-a-stat"><div class="cdb-a-num">${num(m.sessions.week)}</div><div class="cdb-a-label">This Week</div></div>
-            <div class="cdb-a-stat"><div class="cdb-a-num">${num(m.leads.month)}</div><div class="cdb-a-label">Leads</div></div>
-            <div class="cdb-a-stat"><div class="cdb-a-num">${num(m.sessions.today)}</div><div class="cdb-a-label">Today</div></div>
+        </div>
+      </div>
+
+      <div class="cd-card cd-reviews-card">
+        <h3 class="cd-card-title" style="margin-bottom:16px">Google Reviews</h3>
+        <div class="cd-reviews-grid">
+          <div class="cd-review-summary">
+            <div class="cd-review-score">${reviews.length ? (reviews.reduce((a,r) => a + (r.rating||0), 0) / reviews.length).toFixed(1) : '0.0'}</div>
+            <div class="cd-review-stars">${'★'.repeat(Math.round(reviews.length ? reviews.reduce((a,r) => a + (r.rating||0), 0) / reviews.length : 0))}${'☆'.repeat(5 - Math.round(reviews.length ? reviews.reduce((a,r) => a + (r.rating||0), 0) / reviews.length : 0))}</div>
+            <div class="cd-review-count">${reviews.length ? `Based on ${reviews.length} review${reviews.length > 1 ? 's' : ''}` : 'No reviews yet'}</div>
           </div>
+          ${reviews.length ? reviews.slice(0, 3).map(r => `
+          <div class="cd-review-item">
+            <div class="cd-review-top">
+              <div class="cd-review-ava">${esc((r.author || 'A')[0])}</div>
+              <div>
+                <div class="cd-review-author">${esc(r.author || 'Anonymous')}</div>
+                <div class="cd-review-date">${'★'.repeat(r.rating || 0)} ${r.review_date ? new Date(r.review_date).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) : ''}</div>
+              </div>
+            </div>
+            <p class="cd-review-text">${esc((r.text || '').slice(0, 120))}${(r.text || '').length > 120 ? '...' : ''}</p>
+          </div>`).join('') : `
+          <div class="cd-empty" style="grid-column:span 3">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" stroke-width="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <p>Google reviews will sync here automatically</p>
+          </div>`}
+        </div>
+      </div>
+
+      <div class="cd-grid">
+        <div class="cd-card">
+          <div class="cd-card-top">
+            <h3 class="cd-card-title">Live Activity</h3>
+          </div>
+          ${recentEvents.length ? recentEvents.slice(0, 5).map(e => `
+          <div class="cd-activity-row">
+            <div class="cd-activity-dot" style="background:${e.event_type === 'pageview' ? '#3B82F6' : e.event_type === 'form_submit' ? '#22C55E' : '#8B5CF6'}"></div>
+            <div class="cd-activity-info">
+              <span class="cd-activity-type">${esc(e.event_type.replace(/_/g,' '))}</span>
+              ${e.page ? `<span class="cd-activity-page">${esc(e.page.length > 30 ? e.page.slice(0,30) + '...' : e.page)}</span>` : ''}
+            </div>
+            <span class="cd-activity-time">${timeAgo(e.ts)}</span>
+          </div>`).join('') : `
+          <div class="cd-empty">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            <p>Activity from your website will appear here</p>
+          </div>`}
         </div>
 
-        <!-- Two column -->
-        <div class="cdb-two-col">
-
-          <!-- Email list -->
-          <div class="cdb-card">
-            <div class="cdb-card-header">
-              <div class="cdb-card-title">
-                <div class="cdb-card-icon-wrap" style="background:#FFF7ED">📧</div>
-                Email List
-              </div>
-              ${subscribers.length ? `<button class="cdb-pill-btn" id="cdb-compose">✉️ Send email</button>` : ''}
-            </div>
-            <div class="cdb-email-big">
-              <div class="cdb-email-big-num">${subscribers.length.toLocaleString()}</div>
-              <div class="cdb-email-big-label">Total subscribers</div>
-            </div>
-            <div class="cdb-email-metrics">
-              <div class="cdb-em-box">
-                <div class="cdb-em-num">+${newThisMonth}</div>
-                <div class="cdb-em-label">New this month</div>
-              </div>
-              <div class="cdb-em-box">
-                <div class="cdb-em-num">${num(m.emails.month)}</div>
-                <div class="cdb-em-label">Captured on site</div>
-              </div>
-            </div>
-            ${subscribers.length ? `
-            <div class="cdb-sec-label" style="margin:16px 0 8px">Recent Subscribers</div>
-            <input id="cdb-sub-search" type="search" placeholder="Search by email…" class="cdb-search-input" />
-            <div id="cdb-sub-list" style="display:flex;flex-direction:column;gap:2px;max-height:260px;overflow-y:auto">
-              ${subscribers.slice(0, 8).map(s => `
-              <div class="cdb-sub-row sub-row">
-                <span style="font-size:0.95rem;flex-shrink:0">✉️</span>
-                <div style="flex:1;min-width:0">
-                  <div class="cdb-sub-email sub-email">${esc(s.email)}</div>
-                  <div class="cdb-sub-date">${esc(s.source || 'website')} · ${esc(s.date || '')}</div>
-                </div>
-              </div>`).join('')}
-            </div>` : `
-            <div class="cdb-empty-state"><div>✉️</div><div>Emails captured on your site will appear here</div></div>`}
+        <div class="cd-card">
+          <div class="cd-card-top">
+            <h3 class="cd-card-title">Quick Actions</h3>
           </div>
-
-          <!-- Right column -->
-          <div style="display:flex;flex-direction:column;gap:16px">
-
-            <!-- Live activity -->
-            <div class="cdb-card">
-              <div class="cdb-card-header">
-                <div class="cdb-card-title">
-                  <div class="cdb-card-icon-wrap" style="background:#F0FDF4">📡</div>
-                  Live Activity
-                </div>
-              </div>
-              ${recentEvents.length ? recentEvents.slice(0, 5).map(e => `
-              <div class="cdb-activity-row">
-                <span style="font-size:0.95rem;width:22px;text-align:center;flex-shrink:0">${eventIcon(e.event_type)}</span>
-                <div style="flex:1;min-width:0">
-                  <div class="cdb-activity-label">${esc(e.event_type.replace(/_/g,' '))}</div>
-                  ${e.page ? `<div class="cdb-activity-sub">${esc(e.page.length > 32 ? e.page.slice(0,32)+'…' : e.page)}</div>` : ''}
-                </div>
-                <div class="cdb-activity-time">${timeAgo(e.ts)}</div>
-              </div>`).join('') : `
-              <div class="cdb-empty-state"><div>📡</div><div>No events yet</div></div>`}
-            </div>
-
-            <!-- Quick actions -->
-            <div class="cdb-card">
-              <div class="cdb-card-header">
-                <div class="cdb-card-title">
-                  <div class="cdb-card-icon-wrap" style="background:#FFF7ED">⚡</div>
-                  Quick Actions
-                </div>
-              </div>
-              <div class="cdb-quick-grid">
-                <button class="cdb-quick-btn" id="cdb-request-change" style="background:#FEF3C7;border-color:#F59E0B"><span>🎫</span> Request a Change</button>
-                <a class="cdb-quick-btn" href="${esc(client.domain || '#')}" target="_blank" rel="noopener"><span>🌐</span> View Website</a>
-                <a class="cdb-quick-btn" href="https://business.google.com" target="_blank" rel="noopener"><span>⭐</span> Google Reviews</a>
-                ${subscribers.length ? `<button class="cdb-quick-btn" id="cdb-compose-q"><span>📨</span> Send Campaign</button>` : ''}
-              </div>
-            </div>
-
+          <div class="cd-actions">
+            <button class="cd-action-btn" id="cdb-request-change">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+              Request a Change
+            </button>
+            <a class="cd-action-btn" href="https://${esc(client.domain || '')}" target="_blank" rel="noopener">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              View Website
+            </a>
+            <a class="cd-action-btn" href="https://business.google.com" target="_blank" rel="noopener">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              Google Reviews
+            </a>
+            <a class="cd-action-btn" href="mailto:jessyt440@gmail.com">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+              Contact Manager
+            </a>
           </div>
         </div>
-
-        <!-- Help box -->
-        <div class="cdb-help-box">
-          <div class="cdb-help-left">
-            <div class="cdb-help-avatar">J</div>
-            <div>
-              <div class="cdb-help-name">Need anything? I'm here.</div>
-              <div class="cdb-help-sub">Website updates, new features, campaign help — just message and I'll handle it.</div>
-            </div>
-          </div>
-          <a href="mailto:jessyt440@gmail.com" class="cdb-help-cta">Message Your Manager →</a>
-        </div>`;
+      </div>
+    </div>`;
 
   app.innerHTML = `
     <div class="app-layout">
@@ -747,13 +729,13 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
           <div><div class="sidebar-logo-text">Kalnyesgrowth</div></div>
         </div>
         <nav class="sidebar-nav">
-          <div class="nav-section-label">Overview</div>
-          <button class="nav-link active" data-nav="dashboard"><span class="nav-icon">📊</span> Dashboard</button>
-          <button class="nav-link" data-nav="tickets"><span class="nav-icon">🎫</span> Requests</button>
-          <button class="nav-link" data-nav="website"><span class="nav-icon">🌐</span> My Website</button>
-          <button class="nav-link" data-nav="reviews"><span class="nav-icon">⭐</span> Reviews</button>
-          <div class="nav-section-label">Account</div>
-          <button class="nav-link" data-nav="help"><span class="nav-icon">💬</span> Get Help</button>
+          <button class="nav-link active" data-nav="dashboard"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span> Home</button>
+          <button class="nav-link" data-nav="leads"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></span> Leads</button>
+          <button class="nav-link" data-nav="contacts"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg></span> Contacts</button>
+          <button class="nav-link" data-nav="email"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></span> Email</button>
+          <button class="nav-link" data-nav="reviews"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span> Reviews</button>
+          <button class="nav-link" data-nav="tickets"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg></span> Requests</button>
+          <button class="nav-link" data-nav="reports"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span> Reports</button>
         </nav>
         <div class="sidebar-footer">
           <div class="sidebar-user">
@@ -771,9 +753,7 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
         </div>
       </div>
       <main class="main-content">
-        <div id="cdb-root" style="font-family:'Inter',sans-serif">
-          ${dashContent}
-        </div>
+        <div id="cdb-root">${dashContent}</div>
       </main>
     </div>`;
 
@@ -788,63 +768,63 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
   document.querySelectorAll('[data-nav]').forEach(btn => btn.addEventListener('click', () => {
     closeSb();
     const nav = btn.dataset.nav;
-    if (nav === 'website') window.open('https://' + (client.domain || ''), '_blank');
-    else if (nav === 'reviews') window.open('https://business.google.com', '_blank');
-    else if (nav === 'help') window.location.href = 'mailto:jessyt440@gmail.com';
+    if (nav === 'reviews') window.open('https://business.google.com', '_blank');
+    else if (nav === 'email') window.location.href = 'mailto:jessyt440@gmail.com';
     else if (nav === 'tickets') showTicketModal(client);
   }));
 
-  // Wire events
   document.getElementById('cdb-logout')?.addEventListener('click', () => clearSession().then(() => loginViewFn(app)));
   document.getElementById('mobile-logout')?.addEventListener('click', () => clearSession().then(() => loginViewFn(app)));
-
-  const composeHandler = () => showComposeModal(app, client, subscribers);
-  document.getElementById('cdb-compose')?.addEventListener('click', composeHandler);
-  document.getElementById('cdb-compose-q')?.addEventListener('click', composeHandler);
-
   document.getElementById('cdb-request-change')?.addEventListener('click', () => showTicketModal(client));
 
-  document.getElementById('cdb-sub-search')?.addEventListener('input', e => {
-    const q = e.target.value.toLowerCase();
-    document.querySelectorAll('.sub-row').forEach(row => {
-      const email = row.querySelector('.sub-email')?.textContent.toLowerCase() || '';
-      row.style.display = email.includes(q) ? '' : 'none';
-    });
-  });
+  // Chart with time range tabs
+  const chartData = { 7: serWeek, 30: serMonth, 90: serAll };
 
-  // Bar chart
-  requestAnimationFrame(() => {
+  function renderChart(range) {
     const canvas = document.getElementById('cdb-chart');
-    if (!canvas || !chartSeries.length) return;
+    if (!canvas) return;
     const existing = Chart.getChart(canvas);
     if (existing) existing.destroy();
-    const accent = client.color || '#F97316';
+    const series = chartData[range] || [];
+    const labels = series.map(p => p.date || '');
+    const values = series.map(p => typeof p === 'number' ? p : (p.revenue || 0));
     new Chart(canvas, {
-      type: 'bar',
+      type: 'line',
       data: {
-        labels: chartSeries.map((_, i) => i),
+        labels,
         datasets: [{
-          data: chartSeries,
-          backgroundColor: chartSeries.map((_, i) =>
-            i >= chartSeries.length - 7 ? accent : 'rgba(0,0,0,0.07)'
-          ),
-          borderRadius: 5,
-          borderSkipped: false,
+          data: values,
+          borderColor: '#3B82F6',
+          backgroundColor: 'rgba(59,130,246,0.08)',
+          fill: true,
+          tension: 0.35,
+          pointRadius: values.length > 30 ? 0 : 4,
+          pointHoverRadius: 6,
+          pointBackgroundColor: '#3B82F6',
+          borderWidth: 2.5,
         }]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         plugins: { legend: { display: false }, tooltip: {
-          callbacks: { label: ctx => ` ${ctx.parsed.y.toLocaleString()}` }
+          callbacks: { label: ctx => ` ${ctx.parsed.y.toLocaleString()} visitors` }
         }},
         scales: {
-          x: { display: false },
-          y: { display: false, beginAtZero: true }
+          x: { grid: { display: false }, ticks: { maxTicksLimit: 7, font: { size: 11 }, color: '#94A3B8' } },
+          y: { beginAtZero: true, grid: { color: '#F1F5F9' }, ticks: { font: { size: 11 }, color: '#94A3B8' } }
         }
       }
     });
-  });
+  }
+
+  document.querySelectorAll('.cd-tab').forEach(tab => tab.addEventListener('click', () => {
+    document.querySelectorAll('.cd-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    renderChart(parseInt(tab.dataset.range));
+  }));
+
+  requestAnimationFrame(() => renderChart(30));
 }
 
 // ── Shared detail renderer ─────────────────────────────────────
