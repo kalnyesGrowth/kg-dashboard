@@ -240,12 +240,12 @@ html, body {
   left: 0;
   right: 0;
   z-index: 200;
-  height: var(--mobile-bar-h);
+  height: calc(var(--mobile-bar-h) + env(safe-area-inset-top, 0px));
   background: var(--sidebar-bg);
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  padding-top: env(safe-area-inset-top);
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 .hamburger {
@@ -1027,7 +1027,7 @@ html, body {
   /* Main content takes full width + top bar offset */
   .main-content {
     margin-left: 0;
-    padding-top: var(--mobile-bar-h);
+    padding-top: calc(var(--mobile-bar-h) + env(safe-area-inset-top, 0px));
   }
 
   /* Tighter page padding on mobile */
