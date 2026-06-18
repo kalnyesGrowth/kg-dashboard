@@ -62,8 +62,42 @@ html, body {
   background: var(--soft-gray);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
-  overscroll-behavior: none;
 }
+
+.ptr-indicator {
+  position: fixed;
+  top: calc(var(--mobile-bar-h, 56px) + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%) translateY(-50px);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  transition: transform 0.2s ease;
+  pointer-events: none;
+}
+.ptr-indicator.pulling {
+  transition: none;
+}
+.ptr-indicator.refreshing {
+  transform: translateX(-50%) translateY(12px);
+}
+.ptr-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2.5px solid #e5e7eb;
+  border-top-color: #0064E0;
+  border-radius: 50%;
+}
+.ptr-indicator.refreshing .ptr-spinner {
+  animation: ptr-spin 0.7s linear infinite;
+}
+@keyframes ptr-spin { to { transform: rotate(360deg); } }
 
 /* ── App Layout ───────────────────────────────────────────────── */
 #app { min-height: 100dvh; }

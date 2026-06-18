@@ -57,3 +57,49 @@ window.addEventListener('DOMContentLoaded', route);
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
 }
+
+// ── Pull-to-refresh ───────────────────────────────────────────
+(function() {
+  let startY = 0, pulling = false, dist = 0;
+  const threshold = 80;
+
+  const indicator = document.createElement('div');
+  indicator.className = 'ptr-indicator';
+  indicator.innerHTML = '<div class="ptr-spinner"></div>';
+  document.body.appendChild(indicator);
+
+  document.addEventListener('touchstart', function(e) {
+    if (window.scrollY > 5) return;
+    startY = e.touches[0].pageY;
+    pulling = true;
+    dist = 0;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function(e) {
+    if (!pulling) return;
+    dist = Math.max(0, e.touches[0].pageY - startY);
+    if (dist > 0 && window.scrollY <= 0) {
+      var pct = Math.min(dist / threshold, 1);
+      var yOffset = Math.min(dist * 0.4, 50);
+      indicator.classList.add('pulling');
+      indicator.classList.remove('refreshing');
+      indicator.style.transform = 'translateX(-50%) translateY(' + (yOffset - 20) + 'px)';
+      indicator.querySelector('.ptr-spinner').style.transform = 'rotate(' + (pct * 360) + 'deg)';
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchend', function() {
+    if (!pulling) return;
+    pulling = false;
+    if (dist >= threshold && window.scrollY <= 0) {
+      indicator.classList.remove('pulling');
+      indicator.classList.add('refreshing');
+      indicator.style.transform = '';
+      setTimeout(function() { location.reload(); }, 600);
+    } else {
+      indicator.classList.remove('pulling');
+      indicator.style.transform = '';
+    }
+    dist = 0;
+  }, { passive: true });
+})();
