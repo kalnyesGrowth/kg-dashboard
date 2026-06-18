@@ -7,15 +7,6 @@ const CREDS_MAP = CLIENT_CREDS;
 
 const PRESET_COLORS = ['#7C3AED','#0064E0','#0369A1','#0F766E','#059669','#B45309','#BE185D','#DC2626'];
 
-function showToast(msg) {
-  const el = document.createElement('div');
-  el.className = 'sp-toast';
-  el.textContent = msg;
-  document.body.appendChild(el);
-  requestAnimationFrame(() => el.classList.add('show'));
-  setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, 4000);
-}
-
 const ZERO_METRICS = {
   revenue:    { today:0, week:0, month:0, all:0 },
   sessions:   { today:0, week:0, month:0, all:0 },
