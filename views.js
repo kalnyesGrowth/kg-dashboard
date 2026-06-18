@@ -816,7 +816,7 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
         </div>
         <nav class="sidebar-nav">
           <button class="nav-link active" data-nav="dashboard"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span> Home</button>
-          <button class="nav-link" data-nav="leads"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></span> Leads</button>
+          <button class="nav-link" data-nav="orders"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><line x1="10" y1="3" x2="10" y2="9"/></svg></span> Orders</button>
           <button class="nav-link" data-nav="reviews"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span> Reviews</button>
           <button class="nav-link" data-nav="tickets"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg></span> Requests</button>
         </nav>
@@ -848,10 +848,137 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
   document.getElementById('hamburger')?.addEventListener('click', openSb);
   overlay?.addEventListener('click', closeSb);
 
+  function setActiveNav(name) {
+    document.querySelectorAll('.nav-link').forEach(n => n.classList.remove('active'));
+    document.querySelector(`[data-nav="${name}"]`)?.classList.add('active');
+  }
+
+  function showOrders() {
+    const root = document.getElementById('sp-root');
+    if (!root) return;
+    setActiveNav('orders');
+
+    root.innerHTML = `
+      <div class="sp-page">
+        <div class="sp-header">
+          <h1 class="sp-title">Orders</h1>
+          <div style="font-size:13px;color:#6d7175">${leads.length} submission${leads.length !== 1 ? 's' : ''}</div>
+        </div>
+        ${leads.length ? `
+        <div class="sp-card" style="padding:0;overflow:hidden">
+          <table class="sp-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Source</th>
+                <th>Date</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${leads.map(l => `
+              <tr class="sp-table-row" data-lead-id="${esc(l.id)}">
+                <td class="sp-table-name">${esc(l.name || 'Unknown')}</td>
+                <td>${esc(l.email || '')}</td>
+                <td>${esc(l.phone || '')}</td>
+                <td class="sp-table-source">${esc((l.source_url || '').replace(/https?:\/\//, '').replace(/\/$/, '') || '')}</td>
+                <td class="sp-table-date">${l.created_at ? new Date(l.created_at).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) : ''}</td>
+                <td><span class="sp-lead-badge">${esc(l.stage || 'new')}</span></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        ` : `
+        <div class="sp-card">
+          <div class="sp-empty">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><line x1="10" y1="3" x2="10" y2="9"/></svg>
+            <p>Customer submissions from your website will appear here</p>
+          </div>
+        </div>`}
+      </div>`;
+
+    root.querySelectorAll('.sp-table-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const lid = row.dataset.leadId;
+        const lead = leads.find(l => l.id === lid);
+        if (!lead) return;
+        showOrderDetail(lead);
+      });
+    });
+  }
+
+  function showOrderDetail(lead) {
+    const root = document.getElementById('sp-root');
+    if (!root) return;
+    setActiveNav('orders');
+
+    const fields = [
+      { label: 'Name', value: lead.name },
+      { label: 'Email', value: lead.email },
+      { label: 'Phone', value: lead.phone },
+      { label: 'Source page', value: lead.source_url },
+      { label: 'Message', value: lead.message },
+      { label: 'Status', value: lead.stage },
+      { label: 'Submitted', value: lead.created_at ? new Date(lead.created_at).toLocaleString('en-US', { month:'long', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' }) : '' },
+    ].filter(f => f.value);
+
+    const notes = Array.isArray(lead.notes) ? lead.notes : [];
+
+    root.innerHTML = `
+      <div class="sp-page">
+        <div class="sp-header">
+          <div style="display:flex;align-items:center;gap:12px">
+            <button class="sp-range-btn" id="sp-back-orders">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+              Back
+            </button>
+            <h1 class="sp-title">${esc(lead.name || 'Submission')}</h1>
+          </div>
+          <span class="sp-lead-badge">${esc(lead.stage || 'new')}</span>
+        </div>
+
+        <div class="sp-card">
+          <div class="sp-card-header"><div class="sp-card-title">Customer information</div></div>
+          ${fields.map(f => `
+          <div class="sp-detail-row">
+            <div class="sp-detail-label">${esc(f.label)}</div>
+            <div class="sp-detail-value">${f.label === 'Email' && f.value ? `<a href="mailto:${esc(f.value)}" style="color:#0064E0;text-decoration:none">${esc(f.value)}</a>` : f.label === 'Phone' && f.value ? `<a href="tel:${esc(f.value)}" style="color:#0064E0;text-decoration:none">${esc(f.value)}</a>` : esc(f.value)}</div>
+          </div>`).join('')}
+        </div>
+
+        ${notes.length ? `
+        <div class="sp-card" style="margin-top:16px">
+          <div class="sp-card-header"><div class="sp-card-title">Notes</div></div>
+          ${notes.map(n => `
+          <div class="sp-detail-row">
+            <div class="sp-detail-label">${new Date(n.ts).toLocaleDateString('en-US', {month:'short', day:'numeric'})}</div>
+            <div class="sp-detail-value">${esc(n.text)}</div>
+          </div>`).join('')}
+        </div>` : ''}
+      </div>`;
+
+    root.querySelector('#sp-back-orders')?.addEventListener('click', showOrders);
+  }
+
+  function showDashboard() {
+    const root = document.getElementById('sp-root');
+    if (!root) return;
+    setActiveNav('dashboard');
+    root.innerHTML = dashContent;
+    requestAnimationFrame(() => drawChart(currentRange));
+    // Re-wire invite button
+    document.getElementById('sp-invite-btn')?.addEventListener('click', wireInviteModal);
+    document.getElementById('sp-request-btn')?.addEventListener('click', () => showTicketModal(client));
+  }
+
   document.querySelectorAll('[data-nav]').forEach(btn => btn.addEventListener('click', () => {
     closeSb();
     const nav = btn.dataset.nav;
-    if (nav === 'reviews') window.open('https://business.google.com', '_blank');
+    if (nav === 'dashboard') showDashboard();
+    else if (nav === 'orders') showOrders();
+    else if (nav === 'reviews') window.open('https://business.google.com', '_blank');
     else if (nav === 'tickets') showTicketModal(client);
   }));
 
@@ -859,8 +986,7 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
   document.getElementById('mobile-logout')?.addEventListener('click', () => clearSession().then(() => loginViewFn(app)));
   document.getElementById('sp-request-btn')?.addEventListener('click', () => showTicketModal(client));
 
-  // Invite team member
-  document.getElementById('sp-invite-btn')?.addEventListener('click', () => {
+  function wireInviteModal() {
     const modal = document.createElement('div');
     modal.className = 'sp-modal-overlay';
     modal.innerHTML = `
@@ -896,7 +1022,8 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
         btn.disabled = false; btn.textContent = 'Send invite';
       }
     });
-  });
+  }
+  document.getElementById('sp-invite-btn')?.addEventListener('click', wireInviteModal);
 
   // Chart with time range switching
   const allSeries = seriesData;
