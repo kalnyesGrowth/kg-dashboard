@@ -1,5 +1,5 @@
 const DEV = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
-const CACHE = 'kg-dash-v13';
+const CACHE = 'kg-dash-v14';
 const ASSETS = [
   '/',
   '/index.html',
@@ -28,6 +28,35 @@ self.addEventListener('activate', e => {
     caches.keys()
       .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('push', e => {
+  let data = { title: 'New Lead!', body: 'Someone just submitted a quote request.', url: '/' };
+  try { data = Object.assign(data, e.data.json()); } catch (_) {}
+  e.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      vibrate: [200, 100, 200, 100, 200],
+      tag: 'new-lead',
+      renotify: true,
+      data: { url: data.url }
+    })
+  );
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = e.notification.data?.url || '/';
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+      for (const c of clients) {
+        if (new URL(c.url).pathname === url && 'focus' in c) return c.focus();
+      }
+      return self.clients.openWindow(url);
+    })
   );
 });
 

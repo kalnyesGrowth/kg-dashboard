@@ -303,6 +303,87 @@ async function toggleNotifDropdown() {
   }, 50);
 }
 
+// ── Push Notifications ────────────────────────────────────────
+const VAPID_PUBLIC = 'BP-s26cIqwIHGRixkgal45193ut1JzjjeJjpTUpmsCp8Cc8T_GrHFo1tURNlD-k0VTR3HEd3yh5Zp-C2PNDGusY';
+
+async function initPushNotifications(clientId) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  const perm = Notification.permission;
+  if (perm === 'granted') {
+    await subscribePush(clientId);
+    return;
+  }
+  if (perm === 'denied') return;
+  setTimeout(() => {
+    const existing = document.getElementById('push-banner');
+    if (existing) return;
+    const banner = document.createElement('div');
+    banner.id = 'push-banner';
+    banner.style.cssText = 'background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:12px;padding:14px 18px;margin:0 0 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+    banner.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:1.5rem">🔔</span>
+        <div>
+          <div style="font-weight:700;font-size:0.88rem;color:#166534">Enable lead notifications</div>
+          <div style="font-size:0.78rem;color:#4b5563">Get instant alerts on your phone when a new quote comes in, even when this app is closed.</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button id="push-enable" style="background:#166534;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:700;font-size:0.82rem;cursor:pointer">Turn On</button>
+        <button id="push-dismiss" style="background:none;border:1px solid #d1d5db;padding:8px 12px;border-radius:8px;font-size:0.82rem;color:#6b7280;cursor:pointer">Later</button>
+      </div>`;
+    const page = document.querySelector('.sp-page');
+    const header = page?.querySelector('.sp-header');
+    if (header && header.nextSibling) {
+      header.parentNode.insertBefore(banner, header.nextSibling);
+    } else if (page) {
+      page.prepend(banner);
+    }
+    document.getElementById('push-enable')?.addEventListener('click', async () => {
+      await subscribePush(clientId);
+      banner.remove();
+    });
+    document.getElementById('push-dismiss')?.addEventListener('click', () => {
+      banner.remove();
+      sessionStorage.setItem('push-dismissed', '1');
+    });
+  }, 1500);
+}
+
+async function subscribePush(clientId) {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') return;
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC)
+      });
+    }
+    const key = sub.toJSON();
+    const { supabase } = await import('./supabase/client.js');
+    await supabase.from('push_subscriptions').upsert({
+      client_id: clientId,
+      endpoint: key.endpoint,
+      p256dh: key.keys.p256dh,
+      auth: key.keys.auth
+    }, { onConflict: 'client_id,endpoint' });
+  } catch (e) {
+    console.error('Push subscription failed:', e);
+  }
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; ++i) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
 // ── Toast ──────────────────────────────────────────────────────
 function showToast(msg, duration = 2400) {
   document.querySelectorAll('.toast').forEach(t => t.remove());
@@ -350,31 +431,48 @@ export function loginView(app) {
         <div class="login-brand-name">Kalnyesgrowth</div>
         <div class="login-brand-sub">Agency Dashboard</div>
       </div>
-      <div class="login-card">
+      <form class="login-card" id="li-form" autocomplete="on">
         <h2>Sign in</h2>
         <div class="form-group">
           <label>Email address</label>
-          <input id="li-email" type="email" placeholder="you@example.com" autocomplete="email" inputmode="email" />
+          <input id="li-email" type="email" name="email" placeholder="you@example.com" autocomplete="email" inputmode="email" />
         </div>
         <div class="form-group">
           <label>Password</label>
           <div style="position:relative">
-            <input id="li-pass" type="password" placeholder="••••••••" autocomplete="current-password" style="padding-right:44px" />
+            <input id="li-pass" type="password" name="password" placeholder="••••••••" autocomplete="current-password" style="padding-right:44px" />
             <button type="button" id="li-eye" aria-label="Show password"
               style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:1.1rem;padding:4px">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
           </div>
         </div>
-        <button class="btn-primary" id="li-btn">Sign in</button>
+        <label style="display:flex;align-items:center;gap:8px;margin:-4px 0 8px;cursor:pointer;font-size:0.82rem;color:var(--text-secondary)">
+          <input type="checkbox" id="li-remember" style="width:16px;height:16px;accent-color:#0064E0;cursor:pointer" />
+          Remember me
+        </label>
+        <button type="submit" class="btn-primary" id="li-btn">Sign in</button>
         <div class="login-err" id="li-err"></div>
-      </div>
+      </form>
     </div>`;
 
   const btn = document.getElementById('li-btn');
   const err = document.getElementById('li-err');
+  const form = document.getElementById('li-form');
+  const remember = document.getElementById('li-remember');
 
-  btn.addEventListener('click', async () => {
+  const saved = localStorage.getItem('kg-remember');
+  if (saved) {
+    try {
+      const s = JSON.parse(saved);
+      document.getElementById('li-email').value = s.email || '';
+      document.getElementById('li-pass').value = s.pass || '';
+      remember.checked = true;
+    } catch (_) {}
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
     const email    = document.getElementById('li-email').value.trim();
     const password = document.getElementById('li-pass').value;
     err.textContent = '';
@@ -386,16 +484,17 @@ export function loginView(app) {
     const session = await checkLogin(email, password);
     btn.disabled = false; btn.textContent = 'Sign in';
     if (session) {
+      if (remember.checked) {
+        localStorage.setItem('kg-remember', JSON.stringify({ email, pass: password }));
+      } else {
+        localStorage.removeItem('kg-remember');
+      }
       if (session.role === 'agency') { location.hash = '#clients'; }
       else { window.dispatchEvent(new HashChangeEvent('hashchange')); }
     } else {
       err.textContent = 'Incorrect email or password.';
       document.getElementById('li-pass').value = '';
     }
-  });
-
-  ['li-email', 'li-pass'].forEach(id => {
-    document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') btn.click(); });
   });
 
   document.getElementById('li-eye').addEventListener('click', () => {
@@ -608,6 +707,8 @@ export async function clientSelfView(app, clientId) {
       showToast('New order from ' + name);
     })
     .subscribe();
+
+  initPushNotifications(client.id);
 
   (async () => {
     try {

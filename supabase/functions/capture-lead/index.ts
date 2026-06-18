@@ -128,6 +128,11 @@ async function handlePost(req: Request) {
   });
   if (notifErr) console.error('Notification insert failed:', notifErr);
 
+  // Send Web Push notifications to all subscribed devices
+  sendPushNotifications(adminClient, clientId, leadLabel, message).catch(e =>
+    console.error('Push notification error:', e)
+  );
+
   // Fire email notification asynchronously (don't block response)
   const RESEND_KEY = Deno.env.get('RESEND_API_KEY');
   const notifEmail = client.notification_prefs?.email;
@@ -157,4 +162,223 @@ async function handlePost(req: Request) {
 
   console.log(`Lead captured for client ${client.name} (${clientId}): ${email || phone || name}`);
   return json({ ok: true });
+}
+
+// ── Web Push ─────────────────────────────────────────────────────
+async function sendPushNotifications(
+  adminClient: ReturnType<typeof createClient>,
+  clientId: string,
+  leadLabel: string,
+  message: string | null,
+) {
+  const { data: subs } = await adminClient
+    .from('push_subscriptions')
+    .select('endpoint, p256dh, auth')
+    .eq('client_id', clientId);
+
+  if (!subs || subs.length === 0) return;
+
+  const vapidPublic = Deno.env.get('VAPID_PUBLIC_KEY');
+  const vapidPrivate = Deno.env.get('VAPID_PRIVATE_KEY');
+  if (!vapidPublic || !vapidPrivate) {
+    console.error('VAPID keys not configured');
+    return;
+  }
+
+  const payload = JSON.stringify({
+    title: 'New Lead: ' + leadLabel,
+    body: message ? message.slice(0, 100) : 'New quote request from your website',
+    url: '/#leads',
+  });
+
+  for (const sub of subs) {
+    try {
+      await sendWebPush(
+        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+        payload,
+        vapidPublic,
+        vapidPrivate,
+      );
+    } catch (e) {
+      console.error('Push to', sub.endpoint.slice(0, 60), 'failed:', e);
+      if ((e as any)?.status === 410 || (e as any)?.status === 404) {
+        await adminClient.from('push_subscriptions')
+          .delete().eq('endpoint', sub.endpoint).eq('client_id', clientId);
+      }
+    }
+  }
+}
+
+async function sendWebPush(
+  subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
+  payload: string,
+  vapidPublicKey: string,
+  vapidPrivateKey: string,
+) {
+  const url = new URL(subscription.endpoint);
+  const audience = `${url.protocol}//${url.host}`;
+
+  // Create VAPID JWT
+  const header = base64url(JSON.stringify({ typ: 'JWT', alg: 'ES256' }));
+  const now = Math.floor(Date.now() / 1000);
+  const claims = base64url(JSON.stringify({
+    aud: audience,
+    exp: now + 43200,
+    sub: 'mailto:info@kalnyesgrowth.com',
+  }));
+  const unsigned = `${header}.${claims}`;
+
+  const privateKeyBytes = base64urlDecode(vapidPrivateKey);
+  const key = await crypto.subtle.importKey(
+    'jwk',
+    { kty: 'EC', crv: 'P-256', d: base64urlEncode(privateKeyBytes), x: '', y: '' },
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    false,
+    ['sign'],
+  ).catch(async () => {
+    // Fallback: import as raw pkcs8
+    const pkcs8 = buildPkcs8(privateKeyBytes, base64urlDecode(vapidPublicKey));
+    return crypto.subtle.importKey('pkcs8', pkcs8, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  });
+
+  const sig = await crypto.subtle.sign(
+    { name: 'ECDSA', hash: 'SHA-256' },
+    key,
+    new TextEncoder().encode(unsigned),
+  );
+  const jwt = `${unsigned}.${base64urlEncode(new Uint8Array(sig))}`;
+
+  // Encrypt payload using WebPush (aes128gcm)
+  const encrypted = await encryptPayload(
+    payload,
+    base64urlDecode(subscription.keys.p256dh),
+    base64urlDecode(subscription.keys.auth),
+  );
+
+  const resp = await fetch(subscription.endpoint, {
+    method: 'POST',
+    headers: {
+      'Authorization': `vapid t=${jwt}, k=${vapidPublicKey}`,
+      'Content-Encoding': 'aes128gcm',
+      'Content-Type': 'application/octet-stream',
+      'TTL': '86400',
+      'Urgency': 'high',
+    },
+    body: encrypted,
+  });
+
+  if (!resp.ok) {
+    const err: any = new Error(`Push failed: ${resp.status}`);
+    err.status = resp.status;
+    throw err;
+  }
+}
+
+async function encryptPayload(
+  payload: string,
+  clientPublicKey: Uint8Array,
+  clientAuth: Uint8Array,
+): Promise<Uint8Array> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+
+  const localKeyPair = await crypto.subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' },
+    true,
+    ['deriveBits'],
+  );
+
+  const clientKey = await crypto.subtle.importKey(
+    'raw', clientPublicKey, { name: 'ECDH', namedCurve: 'P-256' }, false, [],
+  );
+
+  const sharedSecret = new Uint8Array(
+    await crypto.subtle.deriveBits(
+      { name: 'ECDH', public: clientKey },
+      localKeyPair.privateKey,
+      256,
+    ),
+  );
+
+  const localPublicKeyRaw = new Uint8Array(
+    await crypto.subtle.exportKey('raw', localKeyPair.publicKey),
+  );
+
+  // IKM = HKDF(auth, shared_secret, "WebPush: info\0" || client_pub || server_pub, 32)
+  const authInfo = concatBytes(
+    new TextEncoder().encode('WebPush: info\0'),
+    clientPublicKey,
+    localPublicKeyRaw,
+  );
+  const ikm = await hkdf(clientAuth, sharedSecret, authInfo, 32);
+
+  // PRK for content encryption
+  const contentInfo = new TextEncoder().encode('Content-Encoding: aes128gcm\0');
+  const contentKey = await hkdf(salt, ikm, contentInfo, 16);
+  const nonceInfo = new TextEncoder().encode('Content-Encoding: nonce\0');
+  const nonce = await hkdf(salt, ikm, nonceInfo, 12);
+
+  // Pad payload (add \x02 delimiter)
+  const payloadBytes = new TextEncoder().encode(payload);
+  const padded = new Uint8Array(payloadBytes.length + 1);
+  padded.set(payloadBytes);
+  padded[payloadBytes.length] = 2;
+
+  const aesKey = await crypto.subtle.importKey('raw', contentKey, 'AES-GCM', false, ['encrypt']);
+  const ciphertext = new Uint8Array(
+    await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, aesKey, padded),
+  );
+
+  // Build aes128gcm header: salt(16) + rs(4) + idlen(1) + keyid(65) + ciphertext
+  const rs = new Uint8Array(4);
+  new DataView(rs.buffer).setUint32(0, padded.length + 16 + 1);
+  const header = concatBytes(salt, rs, new Uint8Array([65]), localPublicKeyRaw);
+  return concatBytes(header, ciphertext);
+}
+
+async function hkdf(salt: Uint8Array, ikm: Uint8Array, info: Uint8Array, length: number): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey('raw', salt.length ? salt : new Uint8Array(32), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const prk = new Uint8Array(await crypto.subtle.sign('HMAC', key, ikm));
+  const prkKey = await crypto.subtle.importKey('raw', prk, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const infoWithCounter = concatBytes(info, new Uint8Array([1]));
+  const okm = new Uint8Array(await crypto.subtle.sign('HMAC', prkKey, infoWithCounter));
+  return okm.slice(0, length);
+}
+
+function concatBytes(...arrays: Uint8Array[]): Uint8Array {
+  const len = arrays.reduce((s, a) => s + a.length, 0);
+  const result = new Uint8Array(len);
+  let offset = 0;
+  for (const a of arrays) { result.set(a, offset); offset += a.length; }
+  return result;
+}
+
+function base64url(str: string): string {
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64urlEncode(bytes: Uint8Array): string {
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64urlDecode(str: string): Uint8Array {
+  const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = (4 - base64.length % 4) % 4;
+  const binary = atob(base64 + '='.repeat(pad));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function buildPkcs8(privateKeyBytes: Uint8Array, publicKeyBytes: Uint8Array): Uint8Array {
+  const pkcs8Header = new Uint8Array([
+    0x30, 0x81, 0x87, 0x02, 0x01, 0x00, 0x30, 0x13,
+    0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02,
+    0x01, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d,
+    0x03, 0x01, 0x07, 0x04, 0x6d, 0x30, 0x6b, 0x02,
+    0x01, 0x01, 0x04, 0x20,
+  ]);
+  const midSection = new Uint8Array([0xa1, 0x44, 0x03, 0x42, 0x00]);
+  return concatBytes(pkcs8Header, privateKeyBytes, midSection, publicKeyBytes);
 }
