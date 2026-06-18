@@ -83,21 +83,73 @@
   }
   send('pageview', null);
 
+  // ── Lead capture via edge function ────────────────────────────
+  var LEAD_ENDPOINT = 'https://boddsbxlaytcrkpuckyn.supabase.co/functions/v1/capture-lead';
+
+  function extractFormData(form) {
+    var data = {};
+    var fields = form.querySelectorAll('input, textarea, select');
+    for (var i = 0; i < fields.length; i++) {
+      var f = fields[i];
+      var name = (f.name || f.id || f.type || '').toLowerCase();
+      var val  = (f.value || '').trim();
+      if (!val || f.type === 'hidden' || f.type === 'submit' || f.type === 'button') continue;
+      if (name.indexOf('name') !== -1 || name.indexOf('full') !== -1)  data.name  = data.name  || val;
+      if (name.indexOf('email') !== -1 || f.type === 'email')          data.email = data.email || val;
+      if (name.indexOf('phone') !== -1 || name.indexOf('tel') !== -1 || f.type === 'tel') data.phone = data.phone || val;
+      if (name.indexOf('message') !== -1 || name.indexOf('comment') !== -1 || name.indexOf('note') !== -1 || f.tagName === 'TEXTAREA') data.message = data.message || val;
+    }
+    return data;
+  }
+
+  function sendLead(formData) {
+    var body = JSON.stringify({
+      client_id:  CLIENT_ID,
+      name:       formData.name    || null,
+      email:      formData.email   || null,
+      phone:      formData.phone   || null,
+      message:    formData.message || null,
+      source_url: location.href,
+    });
+
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(LEAD_ENDPOINT, new Blob([body], { type: 'application/json' }));
+    } else {
+      fetch(LEAD_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body,
+        keepalive: true,
+      }).catch(function () {});
+    }
+  }
+
+  // Auto-detect form submissions
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (!form || form.tagName !== 'FORM') return;
+    var data = extractFormData(form);
+    if (data.email || data.phone || data.name) {
+      sendLead(data);
+      send('lead', { form: form.id || form.name || 'auto' });
+    }
+  }, true);
+
   // ── Public API ─────────────────────────────────────────────────
   window.KGTrack = {
-    /** Call when a lead form is submitted */
-    lead: function (formId) {
-      send('lead', { form: formId || 'unknown' });
+    lead: function (formData) {
+      if (typeof formData === 'string') formData = { form: formData };
+      if (formData.email || formData.phone || formData.name) {
+        sendLead(formData);
+      }
+      send('lead', { form: formData.form || 'manual' });
     },
-    /** Call when an email is captured */
     email: function (email, source) {
       send('email_capture', { email: email, source: source || 'unknown' });
     },
-    /** Call when a product is added to cart */
     addToCart: function (value) {
       send('add_to_cart', { value: value || 0 });
     },
-    /** Call on order/purchase confirmation */
     order: function (orderId, value) {
       send('order', { order_id: orderId, value: value || 0 });
     },

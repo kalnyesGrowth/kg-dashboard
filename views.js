@@ -161,7 +161,7 @@ function renderChart(canvasId, series, color) {
 const HAMBURGER = `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="3" y1="5" x2="17" y2="5"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="15" x2="17" y2="15"/></svg>`;
 const BACK      = `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="12,4 5,10 12,16"/></svg>`;
 
-function buildLayout({ content, active, title = '', backRoute = null }) {
+function buildLayout({ content, active, title = '', backRoute = null, notifCount = 0 }) {
   return `
     <div class="app-layout">
       <div class="drawer-overlay" id="drawer-overlay"></div>
@@ -173,6 +173,10 @@ function buildLayout({ content, active, title = '', backRoute = null }) {
         <nav class="sidebar-nav">
           <div class="nav-section-label">Main</div>
           <button class="nav-link ${active === 'clients'  ? 'active' : ''}" data-nav="clients"><span class="nav-icon">👥</span> Clients</button>
+          <button class="nav-link ${active === 'leads'    ? 'active' : ''}" data-nav="leads"><span class="nav-icon">📩</span> Leads <span class="nav-badge" id="leads-badge"></span></button>
+          <button class="nav-link ${active === 'contacts' ? 'active' : ''}" data-nav="contacts"><span class="nav-icon">📇</span> Contacts</button>
+          <button class="nav-link ${active === 'tickets'  ? 'active' : ''}" data-nav="tickets"><span class="nav-icon">🎫</span> Tickets</button>
+          <button class="nav-link ${active === 'sequences' ? 'active' : ''}" data-nav="sequences"><span class="nav-icon">⚡</span> Sequences</button>
           <button class="nav-link ${active === 'reports'  ? 'active' : ''}" data-nav="reports"><span class="nav-icon">📊</span> Reports</button>
           <div class="nav-section-label">Account</div>
           <button class="nav-link ${active === 'settings' ? 'active' : ''}" data-nav="settings"><span class="nav-icon">⚙️</span> Settings</button>
@@ -191,6 +195,7 @@ function buildLayout({ content, active, title = '', backRoute = null }) {
           : `<button class="hamburger" id="hamburger">${HAMBURGER}</button>`}
         <div style="flex:1;font-size:0.85rem;font-weight:700;color:rgba(255,255,255,0.9);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:-0.01em">${esc(title)}</div>
         <div class="mobile-actions">
+          <button class="mobile-icon-btn" id="mobile-notif" title="Notifications" style="position:relative">🔔<span class="notif-dot" id="mobile-notif-dot" style="display:none"></span></button>
           <button class="mobile-icon-btn" id="mobile-logout" title="Sign out">⏻</button>
         </div>
       </div>
@@ -214,6 +219,88 @@ function wireLayout(appEl, backRoute = null) {
   );
   document.getElementById('sidebar-logout')?.addEventListener('click', logout);
   document.getElementById('mobile-logout')?.addEventListener('click', logout);
+
+  // Notification bell
+  const notifBtn = document.getElementById('mobile-notif');
+  notifBtn?.addEventListener('click', () => toggleNotifDropdown());
+
+  // Load unread notification count
+  loadNotifBadges();
+}
+
+async function loadNotifBadges() {
+  try {
+    const count = await DB.countUnreadNotifications();
+    const dot = document.getElementById('mobile-notif-dot');
+    const badge = document.getElementById('leads-badge');
+    if (dot && count > 0) dot.style.display = '';
+
+    const unreadLeads = await DB.countUnreadLeads();
+    if (badge && unreadLeads > 0) {
+      badge.textContent = unreadLeads;
+      badge.style.display = 'inline-block';
+    }
+  } catch (_) {}
+}
+
+async function toggleNotifDropdown() {
+  const existing = document.querySelector('.notif-dropdown');
+  if (existing) { existing.remove(); return; }
+
+  let notifs = [];
+  try { notifs = await DB.fetchNotifications(20); } catch (_) {}
+
+  const dd = document.createElement('div');
+  dd.className = 'notif-dropdown';
+  dd.innerHTML = `
+    <div class="notif-dd-header">
+      <div style="font-weight:700;font-size:0.85rem;color:var(--text-primary)">Notifications</div>
+      ${notifs.some(n => !n.read) ? `<button class="notif-mark-all" id="notif-mark-all">Mark all read</button>` : ''}
+    </div>
+    ${notifs.length ? notifs.map(n => `
+      <div class="notif-item ${n.read ? '' : 'unread'}" data-id="${esc(n.id)}" data-link="${esc(n.link || '')}">
+        <div class="notif-title">${esc(n.title)}</div>
+        ${n.body ? `<div class="notif-body">${esc(n.body.length > 80 ? n.body.slice(0, 80) + '...' : n.body)}</div>` : ''}
+        <div class="notif-time">${timeAgo(n.created_at)}</div>
+      </div>`).join('') : `
+      <div class="notif-empty">No notifications yet</div>`}`;
+
+  document.body.appendChild(dd);
+
+  dd.querySelector('#notif-mark-all')?.addEventListener('click', async () => {
+    try {
+      await DB.markAllNotificationsRead();
+      dd.querySelectorAll('.notif-item.unread').forEach(el => el.classList.remove('unread'));
+      const dot = document.getElementById('mobile-notif-dot');
+      if (dot) dot.style.display = 'none';
+      dd.querySelector('#notif-mark-all')?.remove();
+    } catch (_) {}
+  });
+
+  dd.querySelectorAll('.notif-item').forEach(item => {
+    item.addEventListener('click', async () => {
+      const id = item.dataset.id;
+      const link = item.dataset.link;
+      if (!item.classList.contains('read-done')) {
+        try { await DB.markNotificationRead(id); } catch (_) {}
+        item.classList.add('read-done');
+        item.classList.remove('unread');
+      }
+      dd.remove();
+      if (link) location.hash = link;
+    });
+  });
+
+  // Close on outside click
+  setTimeout(() => {
+    const handler = (e) => {
+      if (!dd.contains(e.target) && e.target.id !== 'mobile-notif') {
+        dd.remove();
+        document.removeEventListener('click', handler);
+      }
+    };
+    document.addEventListener('click', handler);
+  }, 50);
 }
 
 // ── Toast ──────────────────────────────────────────────────────
@@ -637,10 +724,9 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
                 </div>
               </div>
               <div class="cdb-quick-grid">
+                <button class="cdb-quick-btn" id="cdb-request-change" style="background:#FEF3C7;border-color:#F59E0B"><span>🎫</span> Request a Change</button>
                 <a class="cdb-quick-btn" href="${esc(client.domain || '#')}" target="_blank" rel="noopener"><span>🌐</span> View Website</a>
                 <a class="cdb-quick-btn" href="https://business.google.com" target="_blank" rel="noopener"><span>⭐</span> Google Reviews</a>
-                <a class="cdb-quick-btn" href="https://analytics.google.com" target="_blank" rel="noopener"><span>📈</span> Full Analytics</a>
-                <a class="cdb-quick-btn" href="https://www.facebook.com" target="_blank" rel="noopener"><span>💬</span> Messages</a>
                 ${subscribers.length ? `<button class="cdb-quick-btn" id="cdb-compose-q"><span>📨</span> Send Campaign</button>` : ''}
               </div>
             </div>
@@ -669,6 +755,8 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
   const composeHandler = () => showComposeModal(app, client, subscribers);
   document.getElementById('cdb-compose')?.addEventListener('click', composeHandler);
   document.getElementById('cdb-compose-q')?.addEventListener('click', composeHandler);
+
+  document.getElementById('cdb-request-change')?.addEventListener('click', () => showTicketModal(client));
 
   document.getElementById('cdb-sub-search')?.addEventListener('input', e => {
     const q = e.target.value.toLowerCase();
@@ -1008,7 +1096,10 @@ export async function reportsView(app) {
     const totalLeads  = clients.reduce((s, c) => s + c.metrics.leads[tf] + c.metrics.emails[tf], 0);
     const totalOrders = clients.reduce((s, c) => s + c.metrics.orders[tf],     0);
     return { days, html: `
-      <div class="page-topbar"><div class="page-topbar-title">Reports</div></div>
+      <div class="page-topbar">
+        <div class="page-topbar-title">Reports</div>
+        <button class="btn-pill" id="download-pdf" style="font-size:0.72rem;padding:7px 14px">Download PDF</button>
+      </div>
 
       <div class="tf-row" style="padding-top:16px">
         ${['today','week','month','all'].map(t => `
@@ -1086,6 +1177,11 @@ export async function reportsView(app) {
     document.querySelectorAll('[data-id]').forEach(row =>
       row.addEventListener('click', () => location.hash = '#client/' + row.dataset.id)
     );
+
+    // PDF download
+    document.getElementById('download-pdf')?.addEventListener('click', () => {
+      generateReportPDF(clients, tf);
+    });
 
     // Fetch and render revenue chart in background
     try {
@@ -1455,6 +1551,1287 @@ function showAddClientModal(app) {
   });
 }
 
+// ── Leads View (Agency) ───────────────────────────────────────
+export async function leadsView(app) {
+  destroyChart();
+  app.innerHTML = buildLayout({
+    active: 'leads', title: 'Leads',
+    content: `
+      <div class="page-topbar"><div class="page-topbar-title">Leads</div></div>
+      <div class="section"><div class="skel" style="height:60px;border-radius:var(--radius-lg)"></div></div>
+      <div class="section"><div class="skel" style="height:300px;border-radius:var(--radius-lg)"></div></div>
+    `,
+  });
+  wireLayout(app);
+
+  let leads = [], clients = [];
+  try {
+    [leads, clients] = await Promise.all([
+      DB.fetchLeads(null),
+      DB.fetchClients(),
+    ]);
+  } catch (_) {}
+
+  const clientMap = Object.fromEntries(clients.map(c => [c.id, c]));
+  let stageFilter = 'all';
+  let clientFilter = 'all';
+
+  function draw() {
+    const filtered = leads.filter(l => {
+      if (stageFilter !== 'all' && l.stage !== stageFilter) return false;
+      if (clientFilter !== 'all' && l.client_id !== clientFilter) return false;
+      return true;
+    });
+
+    const stageCounts = { new: 0, contacted: 0, quoted: 0, won: 0, lost: 0 };
+    leads.forEach(l => { if (stageCounts[l.stage] !== undefined) stageCounts[l.stage]++; });
+
+    const mc = document.querySelector('.main-content');
+    if (!mc) return;
+
+    mc.innerHTML = `
+      <div class="page-topbar">
+        <div class="page-topbar-title">Leads</div>
+      </div>
+
+      <div class="section">
+        <div class="pipeline-bar">
+          <button class="pipe-pill ${stageFilter === 'all' ? 'active' : ''}" data-stage="all">All ${leads.length}</button>
+          <button class="pipe-pill new ${stageFilter === 'new' ? 'active' : ''}" data-stage="new">New ${stageCounts.new}</button>
+          <button class="pipe-pill contacted ${stageFilter === 'contacted' ? 'active' : ''}" data-stage="contacted">Contacted ${stageCounts.contacted}</button>
+          <button class="pipe-pill quoted ${stageFilter === 'quoted' ? 'active' : ''}" data-stage="quoted">Quoted ${stageCounts.quoted}</button>
+          <button class="pipe-pill won ${stageFilter === 'won' ? 'active' : ''}" data-stage="won">Won ${stageCounts.won}</button>
+          <button class="pipe-pill lost ${stageFilter === 'lost' ? 'active' : ''}" data-stage="lost">Lost ${stageCounts.lost}</button>
+        </div>
+      </div>
+
+      <div class="section" style="padding-top:8px">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <select id="leads-client-filter" class="filter-select">
+            <option value="all">All Clients</option>
+            ${clients.map(c => `<option value="${esc(c.id)}" ${clientFilter === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      <div class="section" style="padding-top:0">
+        ${filtered.length ? `
+        <div class="card">
+          ${filtered.map(l => {
+            const cl = clientMap[l.client_id];
+            const clColor = cl?.color || '#666';
+            const clInitials = cl?.initials || '??';
+            const isUnread = !l.read;
+            return `
+            <div class="lead-row ${isUnread ? 'unread' : ''}" data-id="${esc(l.id)}">
+              <div class="client-avatar" style="background:${esc(clColor)};width:32px;height:32px;border-radius:8px;font-size:0.6rem">${esc(clInitials)}</div>
+              <div class="row-main">
+                <div class="row-name">${esc(l.name || l.email || 'Unknown')}</div>
+                <div class="row-sub">${esc(l.email || '')}${l.phone ? ' | ' + esc(l.phone) : ''}</div>
+                ${l.message ? `<div class="lead-msg-preview">${esc(l.message.length > 80 ? l.message.slice(0, 80) + '...' : l.message)}</div>` : ''}
+                <div class="row-sub">${cl ? esc(cl.name) : ''} | ${timeAgo(l.created_at)}</div>
+              </div>
+              <div style="flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+                <span class="stage-badge stage-${esc(l.stage)}">${esc(l.stage)}</span>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>` : `
+        <div class="card">
+          <div class="empty-state" style="padding:40px 20px">
+            <div class="es-icon">📩</div>
+            <div class="es-text">No leads yet. Leads will appear here when someone fills out a form on a client's website.</div>
+          </div>
+        </div>`}
+      </div>
+      <div class="page-spacer"></div>`;
+
+    mc.querySelectorAll('.pipe-pill').forEach(btn =>
+      btn.addEventListener('click', () => { stageFilter = btn.dataset.stage; draw(); })
+    );
+    mc.querySelector('#leads-client-filter')?.addEventListener('change', e => {
+      clientFilter = e.target.value;
+      draw();
+    });
+    mc.querySelectorAll('.lead-row').forEach(row =>
+      row.addEventListener('click', () => location.hash = '#lead/' + row.dataset.id)
+    );
+  }
+
+  draw();
+
+  // Update badge
+  try {
+    const unread = await DB.countUnreadLeads();
+    const badge = document.getElementById('leads-badge');
+    if (badge && unread > 0) {
+      badge.textContent = unread;
+      badge.style.display = '';
+    }
+  } catch (_) {}
+}
+
+// ── Lead Detail View ──────────────────────────────────────────
+export async function leadDetailView(app, leadId) {
+  destroyChart();
+  app.innerHTML = buildLayout({
+    active: 'leads', title: 'Lead Detail', backRoute: '#leads',
+    content: `
+      <div class="section"><div class="skel" style="height:200px;border-radius:var(--radius-lg)"></div></div>
+    `,
+  });
+  wireLayout(app, '#leads');
+
+  let lead, client;
+  try {
+    lead = await DB.fetchLead(leadId);
+    if (lead) client = await DB.fetchClient(lead.client_id);
+  } catch (_) {}
+
+  if (!lead) { location.hash = '#leads'; return; }
+
+  // Mark as read
+  if (!lead.read) {
+    try { await DB.updateLead(leadId, { read: true }); lead.read = true; } catch (_) {}
+  }
+
+  function draw() {
+    const notes = Array.isArray(lead.notes) ? lead.notes : [];
+    const mc = document.querySelector('.main-content');
+    if (!mc) return;
+
+    mc.innerHTML = `
+      <div class="page-topbar" style="padding-bottom:12px">
+        <div class="page-topbar-title">${esc(lead.name || lead.email || 'Lead')}</div>
+      </div>
+
+      <div class="section">
+        <div class="card" style="padding:18px">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+            ${client ? `<div class="client-avatar" style="background:${esc(client.color)};width:36px;height:36px;border-radius:9px;font-size:0.65rem">${esc(client.initials)}</div>` : ''}
+            <div>
+              <div style="font-size:0.92rem;font-weight:700;color:var(--text-primary)">${esc(lead.name || 'Unknown')}</div>
+              ${client ? `<div style="font-size:0.72rem;color:var(--text-secondary)">${esc(client.name)}</div>` : ''}
+            </div>
+          </div>
+          <div class="lead-detail-grid">
+            ${lead.email ? `<div class="ld-field"><div class="ld-label">Email</div><div class="ld-value"><a href="mailto:${esc(lead.email)}">${esc(lead.email)}</a> <button class="copy-btn" data-copy="${esc(lead.email)}">Copy</button></div></div>` : ''}
+            ${lead.phone ? `<div class="ld-field"><div class="ld-label">Phone</div><div class="ld-value"><a href="tel:${esc(lead.phone)}">${esc(lead.phone)}</a> <button class="copy-btn" data-copy="${esc(lead.phone)}">Copy</button></div></div>` : ''}
+            ${lead.source_url ? `<div class="ld-field"><div class="ld-label">Source</div><div class="ld-value">${esc(lead.source_url)}</div></div>` : ''}
+            <div class="ld-field"><div class="ld-label">Submitted</div><div class="ld-value">${new Date(lead.created_at).toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-label">Stage</div>
+        <div class="stage-selector">
+          ${['new', 'contacted', 'quoted', 'won', 'lost'].map(s =>
+            `<button class="stage-btn stage-${s} ${lead.stage === s ? 'active' : ''}" data-stage="${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</button>`
+          ).join('')}
+        </div>
+      </div>
+
+      ${lead.message ? `
+      <div class="section">
+        <div class="section-label">Message</div>
+        <div class="card" style="padding:16px;border-left:3px solid var(--blue)">
+          <div style="font-size:0.85rem;color:var(--text-primary);line-height:1.6;white-space:pre-wrap">${esc(lead.message)}</div>
+        </div>
+      </div>` : ''}
+
+      <div class="section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div class="section-label" style="margin-bottom:0">Notes</div>
+          <button class="btn-pill" id="add-note-btn" style="font-size:0.72rem;padding:7px 14px">+ Add Note</button>
+        </div>
+        <div id="note-form-area"></div>
+        ${notes.length ? `
+        <div class="card">
+          ${notes.map(n => `
+          <div class="table-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+            <div style="font-size:0.65rem;color:var(--text-secondary)">${new Date(n.ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
+            <div style="font-size:0.82rem;color:var(--text-primary);line-height:1.5">${esc(n.text)}</div>
+          </div>`).join('')}
+        </div>` : `
+        <div class="card">
+          <div class="empty-state" style="padding:24px 16px">
+            <div class="es-text">No notes yet</div>
+          </div>
+        </div>`}
+      </div>
+
+      <div class="section">
+        <div class="section-label">Actions</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${lead.email ? `<a href="mailto:${esc(lead.email)}" class="btn-pill" style="font-size:0.78rem;text-decoration:none">Send Email</a>` : ''}
+          <button class="btn-pill-outline" id="add-to-contacts" style="font-size:0.78rem">Add to Contacts</button>
+          <button class="btn-pill-outline" id="delete-lead" style="font-size:0.78rem;color:var(--red);border-color:var(--red)">Delete</button>
+        </div>
+      </div>
+      <div class="page-spacer"></div>`;
+
+    // Wire stage buttons
+    mc.querySelectorAll('.stage-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const newStage = btn.dataset.stage;
+        if (newStage === lead.stage) return;
+        try {
+          const notes = Array.isArray(lead.notes) ? [...lead.notes] : [];
+          notes.unshift({ text: 'Stage changed from ' + lead.stage + ' to ' + newStage, ts: new Date().toISOString() });
+          await DB.updateLead(leadId, { stage: newStage, notes });
+          lead.stage = newStage;
+          lead.notes = notes;
+          draw();
+          showToast('Stage updated');
+        } catch (e) { showToast('Failed: ' + (e.message || 'Unknown error')); }
+      });
+    });
+
+    // Copy buttons
+    mc.querySelectorAll('.copy-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        navigator.clipboard?.writeText(btn.dataset.copy).then(() => {
+          btn.textContent = 'Copied!';
+          setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+        });
+      });
+    });
+
+    // Add note
+    document.getElementById('add-note-btn')?.addEventListener('click', () => {
+      const area = document.getElementById('note-form-area');
+      if (!area || area.querySelector('textarea')) return;
+      area.innerHTML = `
+        <div class="card" style="padding:14px;margin-bottom:10px">
+          <textarea id="note-input" rows="3" placeholder="Add a note..." style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.82rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none;resize:vertical"></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn-pill" id="save-note" style="font-size:0.72rem;padding:7px 14px">Save</button>
+            <button class="btn-pill-outline" id="cancel-note" style="font-size:0.72rem;padding:7px 14px">Cancel</button>
+          </div>
+        </div>`;
+      document.getElementById('note-input')?.focus();
+      document.getElementById('cancel-note')?.addEventListener('click', () => { area.innerHTML = ''; });
+      document.getElementById('save-note')?.addEventListener('click', async () => {
+        const text = document.getElementById('note-input')?.value?.trim();
+        if (!text) return;
+        try {
+          const updated = await DB.addLeadNote(leadId, text);
+          lead.notes = updated.notes;
+          draw();
+          showToast('Note added');
+        } catch (e) { showToast('Failed: ' + (e.message || 'Unknown error')); }
+      });
+    });
+
+    // Add to contacts
+    document.getElementById('add-to-contacts')?.addEventListener('click', async () => {
+      try {
+        await DB.addContact({
+          client_id: lead.client_id,
+          name: lead.name,
+          email: lead.email,
+          phone: lead.phone,
+          source: 'form',
+          tags: [],
+        });
+        showToast('Added to contacts');
+      } catch (e) { showToast('Failed: ' + (e.message || 'Already exists?')); }
+    });
+
+    // Delete lead
+    document.getElementById('delete-lead')?.addEventListener('click', async () => {
+      if (!confirm('Delete this lead? This cannot be undone.')) return;
+      try {
+        await DB.deleteLead(leadId);
+        showToast('Lead deleted');
+        location.hash = '#leads';
+      } catch (e) { showToast('Failed: ' + (e.message || 'Unknown error')); }
+    });
+  }
+
+  draw();
+}
+
+// ── Contacts View (Agency) ────────────────────────────────────
+export async function contactsView(app) {
+  destroyChart();
+  app.innerHTML = buildLayout({
+    active: 'contacts', title: 'Contacts',
+    content: `
+      <div class="page-topbar"><div class="page-topbar-title">Contacts</div></div>
+      <div class="section"><div class="skel" style="height:300px;border-radius:var(--radius-lg)"></div></div>
+    `,
+  });
+  wireLayout(app);
+
+  let contacts = [], clients = [];
+  try {
+    [contacts, clients] = await Promise.all([
+      DB.fetchContacts(null),
+      DB.fetchClients(),
+    ]);
+  } catch (_) {}
+
+  const clientMap = Object.fromEntries(clients.map(c => [c.id, c]));
+  let searchQuery = '';
+  let tagFilter = 'all';
+  let clientFilter = 'all';
+
+  const allTags = [...new Set(contacts.flatMap(c => c.tags || []))].sort();
+
+  function draw() {
+    const filtered = contacts.filter(c => {
+      if (clientFilter !== 'all' && c.client_id !== clientFilter) return false;
+      if (tagFilter !== 'all' && !(c.tags || []).includes(tagFilter)) return false;
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const hay = [c.name, c.email, c.phone, ...(c.tags || [])].filter(Boolean).join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    const mc = document.querySelector('.main-content');
+    if (!mc) return;
+
+    mc.innerHTML = `
+      <div class="page-topbar">
+        <div>
+          <div class="page-topbar-title">Contacts (${contacts.length})</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn-pill" id="add-contact-btn" style="font-size:0.72rem;padding:7px 14px">+ Add</button>
+          <button class="btn-pill-outline" id="import-csv-btn" style="font-size:0.72rem;padding:7px 14px">Import CSV</button>
+        </div>
+      </div>
+
+      <div class="section" style="padding-top:12px">
+        <input id="contacts-search" type="search" placeholder="Search by name, email, phone, tag..." value="${esc(searchQuery)}"
+          style="width:100%;box-sizing:border-box;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.82rem;font-family:inherit;color:var(--text-primary);background:var(--white);outline:none;margin-bottom:10px" />
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <select id="contacts-client-filter" class="filter-select">
+            <option value="all">All Clients</option>
+            ${clients.map(c => `<option value="${esc(c.id)}" ${clientFilter === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
+          </select>
+          ${allTags.length ? `
+          <select id="contacts-tag-filter" class="filter-select">
+            <option value="all">All Tags</option>
+            ${allTags.map(t => `<option value="${esc(t)}" ${tagFilter === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
+          </select>` : ''}
+        </div>
+      </div>
+
+      <div class="section" style="padding-top:0">
+        ${filtered.length ? `
+        <div class="card">
+          ${filtered.map(c => {
+            const cl = clientMap[c.client_id];
+            const ini = c.name ? c.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : '??';
+            return `
+            <div class="contact-row" data-id="${esc(c.id)}" style="cursor:pointer">
+              <div class="row-ava" style="background:${cl?.color || '#666'};color:#fff;border:none">${esc(ini)}</div>
+              <div class="row-main">
+                <div class="row-name">${esc(c.name || c.email || 'Unknown')}</div>
+                <div class="row-sub">${esc(c.email || '')}${c.phone ? ' | ' + esc(c.phone) : ''}</div>
+                ${(c.tags || []).length ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">${c.tags.map(t => `<span class="tag-pill">${esc(t)}</span>`).join('')}</div>` : ''}
+              </div>
+              <div style="font-size:0.68rem;color:var(--text-secondary);flex-shrink:0">${new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+            </div>`;
+          }).join('')}
+        </div>` : `
+        <div class="card">
+          <div class="empty-state" style="padding:40px 20px">
+            <div class="es-icon">📇</div>
+            <div class="es-text">${searchQuery || tagFilter !== 'all' ? 'No contacts match your search' : 'No contacts yet. Add contacts manually or import a CSV.'}</div>
+          </div>
+        </div>`}
+      </div>
+      <div class="page-spacer"></div>`;
+
+    mc.querySelector('#contacts-search')?.addEventListener('input', e => {
+      searchQuery = e.target.value;
+      draw();
+    });
+    mc.querySelector('#contacts-client-filter')?.addEventListener('change', e => {
+      clientFilter = e.target.value;
+      draw();
+    });
+    mc.querySelector('#contacts-tag-filter')?.addEventListener('change', e => {
+      tagFilter = e.target.value;
+      draw();
+    });
+    mc.querySelectorAll('.contact-row').forEach(row =>
+      row.addEventListener('click', () => location.hash = '#contact/' + row.dataset.id)
+    );
+
+    document.getElementById('add-contact-btn')?.addEventListener('click', () => showAddContactModal(clients, contacts, draw));
+    document.getElementById('import-csv-btn')?.addEventListener('click', () => showCsvImportModal(clients, contacts, draw));
+  }
+
+  draw();
+}
+
+// ── Contact Detail View ───────────────────────────────────────
+export async function contactDetailView(app, contactId) {
+  destroyChart();
+  app.innerHTML = buildLayout({
+    active: 'contacts', title: 'Contact', backRoute: '#contacts',
+    content: `<div class="section"><div class="skel" style="height:200px;border-radius:var(--radius-lg)"></div></div>`,
+  });
+  wireLayout(app, '#contacts');
+
+  let contact, client;
+  try {
+    contact = await DB.fetchContact(contactId);
+    if (contact) client = await DB.fetchClient(contact.client_id);
+  } catch (_) {}
+
+  if (!contact) { location.hash = '#contacts'; return; }
+
+  const mc = document.querySelector('.main-content');
+  if (!mc) return;
+
+  const ini = contact.name ? contact.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : '??';
+
+  mc.innerHTML = `
+    <div class="page-topbar" style="padding-bottom:12px">
+      <div class="page-topbar-title">${esc(contact.name || contact.email || 'Contact')}</div>
+    </div>
+
+    <div class="section">
+      <div class="card" style="padding:18px">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
+          <div class="row-ava" style="width:48px;height:48px;font-size:0.85rem;background:${client?.color || '#666'};color:#fff;border:none">${esc(ini)}</div>
+          <div style="flex:1">
+            <div style="font-size:1rem;font-weight:700;color:var(--text-primary)">${esc(contact.name || 'Unknown')}</div>
+            ${client ? `<div style="font-size:0.72rem;color:var(--text-secondary)">${esc(client.name)}</div>` : ''}
+          </div>
+          <button class="btn-pill-outline" id="edit-contact-btn" style="font-size:0.72rem;padding:7px 14px">Edit</button>
+        </div>
+        <div class="lead-detail-grid">
+          ${contact.email ? `<div class="ld-field"><div class="ld-label">Email</div><div class="ld-value"><a href="mailto:${esc(contact.email)}">${esc(contact.email)}</a></div></div>` : ''}
+          ${contact.phone ? `<div class="ld-field"><div class="ld-label">Phone</div><div class="ld-value"><a href="tel:${esc(contact.phone)}">${esc(contact.phone)}</a></div></div>` : ''}
+          <div class="ld-field"><div class="ld-label">Source</div><div class="ld-value">${esc(contact.source || 'manual')}</div></div>
+          <div class="ld-field"><div class="ld-label">Added</div><div class="ld-value">${new Date(contact.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div></div>
+        </div>
+        ${(contact.tags || []).length ? `
+        <div style="margin-top:14px;display:flex;gap:6px;flex-wrap:wrap">
+          ${contact.tags.map(t => `<span class="tag-pill">${esc(t)}</span>`).join('')}
+        </div>` : ''}
+      </div>
+    </div>
+
+    ${contact.notes ? `
+    <div class="section">
+      <div class="section-label">Notes</div>
+      <div class="card" style="padding:16px">
+        <div style="font-size:0.82rem;color:var(--text-primary);line-height:1.6;white-space:pre-wrap">${esc(contact.notes)}</div>
+      </div>
+    </div>` : ''}
+
+    <div class="section">
+      <div class="section-label">Actions</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${contact.email ? `<a href="mailto:${esc(contact.email)}" class="btn-pill" style="font-size:0.78rem;text-decoration:none">Send Email</a>` : ''}
+        <button class="btn-pill-outline" id="delete-contact" style="font-size:0.78rem;color:var(--red);border-color:var(--red)">Delete</button>
+      </div>
+    </div>
+    <div class="page-spacer"></div>`;
+
+  document.getElementById('delete-contact')?.addEventListener('click', async () => {
+    if (!confirm('Delete this contact?')) return;
+    try {
+      await DB.deleteContact(contactId);
+      showToast('Contact deleted');
+      location.hash = '#contacts';
+    } catch (e) { showToast('Failed: ' + (e.message || 'Unknown error')); }
+  });
+}
+
+// ── Add Contact Modal ─────────────────────────────────────────
+function showAddContactModal(clients, contactsList, refreshFn) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal" id="add-contact-modal">
+      <div class="modal-header">
+        <div class="modal-title">Add contact</div>
+        <button class="modal-close" id="ac-close">x</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Client</label>
+          <select id="ac-client" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.88rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
+            ${clients.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label>Name</label><input id="ac-name" type="text" placeholder="Jane Doe" /></div>
+        <div class="form-group"><label>Email</label><input id="ac-email" type="email" placeholder="jane@email.com" /></div>
+        <div class="form-group"><label>Phone</label><input id="ac-phone" type="tel" placeholder="(540) 555-0123" /></div>
+        <div class="form-group"><label>Tags (comma-separated)</label><input id="ac-tags" type="text" placeholder="VIP, Wedding" /></div>
+        <div class="modal-err" id="ac-err"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-pill" id="ac-submit" style="flex:1">Add Contact</button>
+        <button class="btn-pill-outline" id="ac-cancel">Cancel</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(backdrop);
+  const close = () => backdrop.remove();
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+  document.getElementById('ac-close')?.addEventListener('click', close);
+  document.getElementById('ac-cancel')?.addEventListener('click', close);
+
+  document.getElementById('ac-submit')?.addEventListener('click', async () => {
+    const clientId = document.getElementById('ac-client').value;
+    const name = document.getElementById('ac-name').value.trim();
+    const email = document.getElementById('ac-email').value.trim();
+    const phone = document.getElementById('ac-phone').value.trim();
+    const tagsStr = document.getElementById('ac-tags').value.trim();
+    const errEl = document.getElementById('ac-err');
+    const btn = document.getElementById('ac-submit');
+
+    if (!email && !phone) { errEl.textContent = 'Email or phone is required.'; return; }
+
+    const tags = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+      const newContact = await DB.addContact({ client_id: clientId, name, email, phone, tags, source: 'manual' });
+      contactsList.unshift(newContact);
+      close();
+      showToast('Contact added');
+      refreshFn();
+    } catch (e) {
+      errEl.textContent = e.message || 'Failed to add contact.';
+      btn.disabled = false;
+      btn.textContent = 'Add Contact';
+    }
+  });
+}
+
+// ── CSV Import Modal ──────────────────────────────────────────
+function showCsvImportModal(clients, contactsList, refreshFn) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal" id="csv-modal">
+      <div class="modal-header">
+        <div class="modal-title">Import CSV</div>
+        <button class="modal-close" id="csv-close">x</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Client</label>
+          <select id="csv-client" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.88rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
+            ${clients.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>CSV file (with headers: name, email, phone)</label>
+          <input id="csv-file" type="file" accept=".csv" style="font-size:0.82rem" />
+        </div>
+        <div id="csv-preview"></div>
+        <div class="modal-err" id="csv-err"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-pill" id="csv-import" style="flex:1" disabled>Import</button>
+        <button class="btn-pill-outline" id="csv-cancel">Cancel</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(backdrop);
+  const close = () => backdrop.remove();
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+  document.getElementById('csv-close')?.addEventListener('click', close);
+  document.getElementById('csv-cancel')?.addEventListener('click', close);
+
+  let parsedRows = [];
+
+  document.getElementById('csv-file')?.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const lines = ev.target.result.split('\n').map(l => l.trim()).filter(Boolean);
+      if (lines.length < 2) { document.getElementById('csv-err').textContent = 'CSV must have a header row and at least one data row.'; return; }
+      const headers = lines[0].toLowerCase().split(',').map(h => h.trim().replace(/"/g, ''));
+      const emailIdx = headers.findIndex(h => h.includes('email'));
+      const nameIdx = headers.findIndex(h => h.includes('name'));
+      const phoneIdx = headers.findIndex(h => h.includes('phone'));
+      if (emailIdx === -1) { document.getElementById('csv-err').textContent = 'CSV must have an "email" column.'; return; }
+
+      parsedRows = lines.slice(1).map(line => {
+        const cols = line.split(',').map(c => c.trim().replace(/"/g, ''));
+        return {
+          email: cols[emailIdx] || '',
+          name: nameIdx >= 0 ? cols[nameIdx] || '' : '',
+          phone: phoneIdx >= 0 ? cols[phoneIdx] || '' : '',
+        };
+      }).filter(r => r.email);
+
+      const preview = document.getElementById('csv-preview');
+      preview.innerHTML = `
+        <div style="font-size:0.78rem;color:var(--text-primary);margin:10px 0">
+          <strong>${parsedRows.length} contacts</strong> found. Preview:
+        </div>
+        <div class="card" style="max-height:160px;overflow-y:auto">
+          ${parsedRows.slice(0, 5).map(r => `
+          <div class="table-row">
+            <div class="row-main">
+              <div class="row-name">${esc(r.name || r.email)}</div>
+              <div class="row-sub">${esc(r.email)}${r.phone ? ' | ' + esc(r.phone) : ''}</div>
+            </div>
+          </div>`).join('')}
+          ${parsedRows.length > 5 ? `<div style="padding:8px 18px;font-size:0.72rem;color:var(--text-secondary)">...and ${parsedRows.length - 5} more</div>` : ''}
+        </div>`;
+      document.getElementById('csv-import').disabled = false;
+    };
+    reader.readAsText(file);
+  });
+
+  document.getElementById('csv-import')?.addEventListener('click', async () => {
+    if (!parsedRows.length) return;
+    const clientId = document.getElementById('csv-client').value;
+    const btn = document.getElementById('csv-import');
+    btn.disabled = true;
+    btn.textContent = 'Importing...';
+
+    try {
+      const toInsert = parsedRows.map(r => ({
+        client_id: clientId,
+        name: r.name,
+        email: r.email,
+        phone: r.phone,
+        source: 'import',
+        tags: [],
+      }));
+      const inserted = await DB.bulkInsertContacts(toInsert);
+      contactsList.unshift(...inserted);
+      close();
+      showToast(`Imported ${inserted.length} contacts`);
+      refreshFn();
+    } catch (e) {
+      document.getElementById('csv-err').textContent = e.message || 'Import failed.';
+      btn.disabled = false;
+      btn.textContent = 'Import';
+    }
+  });
+}
+
+// ── Tickets View (Agency) ─────────────────────────────────────
+export async function ticketsView(app) {
+  destroyChart();
+  app.innerHTML = buildLayout({
+    active: 'tickets', title: 'Tickets',
+    content: `
+      <div class="page-topbar"><div class="page-topbar-title">Tickets</div></div>
+      <div class="section"><div class="skel" style="height:300px;border-radius:var(--radius-lg)"></div></div>
+    `,
+  });
+  wireLayout(app);
+
+  let tickets = [], clients = [];
+  try {
+    [tickets, clients] = await Promise.all([
+      DB.fetchTickets(null),
+      DB.fetchClients(),
+    ]);
+  } catch (_) {}
+
+  const clientMap = Object.fromEntries(clients.map(c => [c.id, c]));
+  let statusFilter = 'all';
+
+  function draw() {
+    const filtered = statusFilter === 'all' ? tickets : tickets.filter(t => t.status === statusFilter);
+    const openCount = tickets.filter(t => t.status !== 'done').length;
+
+    const mc = document.querySelector('.main-content');
+    if (!mc) return;
+
+    mc.innerHTML = `
+      <div class="page-topbar">
+        <div class="page-topbar-title">Tickets (${openCount} open)</div>
+      </div>
+
+      <div class="section" style="padding-top:12px">
+        <div class="pipeline-bar">
+          <button class="pipe-pill ${statusFilter === 'all' ? 'active' : ''}" data-status="all">All ${tickets.length}</button>
+          <button class="pipe-pill new ${statusFilter === 'new' ? 'active' : ''}" data-status="new">New ${tickets.filter(t => t.status === 'new').length}</button>
+          <button class="pipe-pill contacted ${statusFilter === 'in_progress' ? 'active' : ''}" data-status="in_progress">In Progress ${tickets.filter(t => t.status === 'in_progress').length}</button>
+          <button class="pipe-pill won ${statusFilter === 'done' ? 'active' : ''}" data-status="done">Done ${tickets.filter(t => t.status === 'done').length}</button>
+        </div>
+      </div>
+
+      <div class="section" style="padding-top:0">
+        ${filtered.length ? `
+        <div class="card">
+          ${filtered.map(t => {
+            const cl = clientMap[t.client_id];
+            const catLabel = { hours: 'Hours', menu_services: 'Menu/Services', photos: 'Photos', content: 'Content', bug: 'Bug/Error', other: 'Other' }[t.category] || t.category;
+            return `
+            <div class="table-row" style="flex-wrap:wrap;gap:8px">
+              <div class="client-avatar" style="background:${cl?.color || '#666'};width:32px;height:32px;border-radius:8px;font-size:0.6rem">${esc(cl?.initials || '??')}</div>
+              <div class="row-main">
+                <div class="row-name">${esc(t.description.length > 60 ? t.description.slice(0, 60) + '...' : t.description)}</div>
+                <div class="row-sub">${esc(catLabel)} | ${cl ? esc(cl.name) : ''} | ${new Date(t.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+              </div>
+              <div style="display:flex;gap:6px;flex-shrink:0;align-items:center">
+                <span class="stage-badge stage-${t.status === 'in_progress' ? 'contacted' : t.status === 'done' ? 'won' : 'new'}">${t.status === 'in_progress' ? 'In Progress' : t.status === 'done' ? 'Done' : 'New'}</span>
+                ${t.status === 'new' ? `<button class="btn-pill" data-action="start" data-id="${esc(t.id)}" style="font-size:0.65rem;padding:5px 10px">Start</button>` : ''}
+                ${t.status !== 'done' ? `<button class="btn-pill" data-action="done" data-id="${esc(t.id)}" style="font-size:0.65rem;padding:5px 10px;background:var(--green)">Done</button>` : ''}
+              </div>
+            </div>`;
+          }).join('')}
+        </div>` : `
+        <div class="card">
+          <div class="empty-state" style="padding:40px 20px">
+            <div class="es-icon">🎫</div>
+            <div class="es-text">No tickets yet. Clients can submit website change requests from their dashboard.</div>
+          </div>
+        </div>`}
+      </div>
+      <div class="page-spacer"></div>`;
+
+    mc.querySelectorAll('.pipe-pill').forEach(btn =>
+      btn.addEventListener('click', () => { statusFilter = btn.dataset.status; draw(); })
+    );
+
+    mc.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', async e => {
+        e.stopPropagation();
+        const id = btn.dataset.id;
+        const action = btn.dataset.action;
+        const newStatus = action === 'start' ? 'in_progress' : 'done';
+        const updates = { status: newStatus };
+        if (newStatus === 'done') updates.completed_at = new Date().toISOString();
+        try {
+          await DB.updateTicket(id, updates);
+          const idx = tickets.findIndex(t => t.id === id);
+          if (idx >= 0) { tickets[idx].status = newStatus; if (updates.completed_at) tickets[idx].completed_at = updates.completed_at; }
+          draw();
+          showToast('Ticket updated');
+        } catch (e) { showToast('Failed: ' + (e.message || 'Unknown error')); }
+      });
+    });
+  }
+
+  draw();
+}
+
+// ── Sequences View (Agency) ────────────────────────────────────
+const SEQUENCE_TEMPLATES = [
+  {
+    name: 'Welcome Sequence',
+    trigger_type: 'new_subscriber',
+    steps: [
+      { delay_hours: 0, subject: 'Welcome to {{business_name}}!', body: 'Hi {{first_name}},\n\nThanks for subscribing! We\'re glad to have you.\n\nHere\'s what you can expect from us:\n- Exclusive offers and promotions\n- Updates on new products/services\n- Tips and helpful content\n\nStay tuned!\n\nBest,\n{{business_name}}' },
+      { delay_hours: 72, subject: 'Here\'s what we offer', body: 'Hi {{first_name}},\n\nWe wanted to share a quick overview of our services:\n\n[Your key services/products here]\n\nHave questions? Just reply to this email.\n\nBest,\n{{business_name}}' },
+      { delay_hours: 168, subject: 'A special offer just for you', body: 'Hi {{first_name}},\n\nAs a thank you for being a subscriber, here\'s a special offer:\n\n[Your offer here]\n\nThis offer is available for a limited time.\n\nBest,\n{{business_name}}' },
+    ],
+  },
+  {
+    name: 'Lead Follow-Up',
+    trigger_type: 'new_lead',
+    steps: [
+      { delay_hours: 0, subject: 'Thanks for reaching out!', body: 'Hi {{first_name}},\n\nThanks for contacting us! We received your inquiry and will get back to you shortly.\n\nIn the meantime, feel free to check out our website for more information.\n\nBest,\n{{business_name}}' },
+      { delay_hours: 48, subject: 'Just checking in', body: 'Hi {{first_name}},\n\nWe wanted to follow up on your recent inquiry. Do you have any questions we can help with?\n\nWe\'d love to help you find exactly what you need.\n\nBest,\n{{business_name}}' },
+      { delay_hours: 120, subject: 'Still interested?', body: 'Hi {{first_name}},\n\nWe noticed you reached out recently. We want to make sure we didn\'t miss anything.\n\nIf you\'re still interested, we\'d love to connect. Just reply to this email or give us a call.\n\nBest,\n{{business_name}}' },
+    ],
+  },
+  {
+    name: 'Review Request',
+    trigger_type: 'manual',
+    steps: [
+      { delay_hours: 24, subject: 'Thanks for visiting {{business_name}}!', body: 'Hi {{first_name}},\n\nThanks for your recent visit! We hope you had a great experience.\n\nWe\'d love to hear your feedback.\n\nBest,\n{{business_name}}' },
+      { delay_hours: 72, subject: 'Would you leave us a review?', body: 'Hi {{first_name}},\n\nYour opinion matters to us! If you enjoyed your experience, we\'d really appreciate a quick review.\n\n[Google Review Link]\n\nIt only takes a minute and helps us serve you better.\n\nThank you!\n{{business_name}}' },
+    ],
+  },
+];
+
+export async function sequencesView(app) {
+  destroyChart();
+  app.innerHTML = buildLayout({
+    active: 'sequences', title: 'Sequences',
+    content: `
+      <div class="page-topbar"><div class="page-topbar-title">Sequences</div></div>
+      <div class="section"><div class="skel" style="height:300px;border-radius:var(--radius-lg)"></div></div>
+    `,
+  });
+  wireLayout(app);
+
+  let sequences = [], clients = [];
+  try {
+    [sequences, clients] = await Promise.all([
+      DB.fetchSequences(null),
+      DB.fetchClients(),
+    ]);
+  } catch (_) {}
+
+  const clientMap = Object.fromEntries(clients.map(c => [c.id, c]));
+
+  function draw() {
+    const mc = document.querySelector('.main-content');
+    if (!mc) return;
+
+    const active = sequences.filter(s => s.status === 'active');
+    const drafts = sequences.filter(s => s.status === 'draft');
+    const paused = sequences.filter(s => s.status === 'paused');
+
+    mc.innerHTML = `
+      <div class="page-topbar">
+        <div class="page-topbar-title">Sequences (${sequences.length})</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn-pill" id="create-seq-btn" style="font-size:0.72rem;padding:7px 14px">+ Create</button>
+          <button class="btn-pill-outline" id="template-seq-btn" style="font-size:0.72rem;padding:7px 14px">Templates</button>
+        </div>
+      </div>
+
+      ${active.length ? `
+      <div class="section">
+        <div class="section-label">Active</div>
+        <div class="card">
+          ${active.map(s => seqRow(s, clientMap)).join('')}
+        </div>
+      </div>` : ''}
+
+      ${drafts.length ? `
+      <div class="section">
+        <div class="section-label">Drafts</div>
+        <div class="card">
+          ${drafts.map(s => seqRow(s, clientMap)).join('')}
+        </div>
+      </div>` : ''}
+
+      ${paused.length ? `
+      <div class="section">
+        <div class="section-label">Paused</div>
+        <div class="card">
+          ${paused.map(s => seqRow(s, clientMap)).join('')}
+        </div>
+      </div>` : ''}
+
+      ${!sequences.length ? `
+      <div class="section">
+        <div class="card">
+          <div class="empty-state" style="padding:40px 20px">
+            <div class="es-icon">⚡</div>
+            <div class="es-text">No sequences yet. Create one or start from a template.</div>
+          </div>
+        </div>
+      </div>` : ''}
+      <div class="page-spacer"></div>`;
+
+    mc.querySelectorAll('.seq-row').forEach(row =>
+      row.addEventListener('click', () => location.hash = '#sequence/' + row.dataset.id)
+    );
+    document.getElementById('create-seq-btn')?.addEventListener('click', () => showCreateSeqModal(clients, sequences, draw));
+    document.getElementById('template-seq-btn')?.addEventListener('click', () => showTemplateModal(clients, sequences, draw));
+  }
+
+  draw();
+}
+
+function seqRow(s, clientMap) {
+  const cl = clientMap[s.client_id];
+  const steps = Array.isArray(s.steps) ? s.steps : [];
+  const triggerLabel = { new_subscriber: 'On Subscribe', new_lead: 'On New Lead', manual: 'Manual' }[s.trigger_type] || s.trigger_type;
+  const statusClass = { active: 'won', draft: 'new', paused: 'contacted' }[s.status] || 'new';
+  return `
+    <div class="seq-row table-row" data-id="${esc(s.id)}" style="cursor:pointer">
+      <div class="row-main">
+        <div class="row-name">${esc(s.name)}</div>
+        <div class="row-sub">${esc(triggerLabel)} | ${steps.length} step${steps.length !== 1 ? 's' : ''} | ${cl ? esc(cl.name) : 'Unknown'}</div>
+      </div>
+      <span class="stage-badge stage-${statusClass}">${esc(s.status)}</span>
+    </div>`;
+}
+
+// ── Sequence Detail View ──────────────────────────────────────
+export async function sequenceDetailView(app, seqId) {
+  destroyChart();
+  app.innerHTML = buildLayout({
+    active: 'sequences', title: 'Sequence', backRoute: '#sequences',
+    content: `<div class="section"><div class="skel" style="height:200px;border-radius:var(--radius-lg)"></div></div>`,
+  });
+  wireLayout(app, '#sequences');
+
+  let seq, client, enrollments = [];
+  try {
+    seq = await DB.fetchSequence(seqId);
+    if (seq) {
+      [client, enrollments] = await Promise.all([
+        DB.fetchClient(seq.client_id),
+        DB.fetchEnrollments(seqId),
+      ]);
+    }
+  } catch (_) {}
+
+  if (!seq) { location.hash = '#sequences'; return; }
+
+  function draw() {
+    const steps = Array.isArray(seq.steps) ? seq.steps : [];
+    const mc = document.querySelector('.main-content');
+    if (!mc) return;
+
+    const triggerLabel = { new_subscriber: 'On Subscribe', new_lead: 'On New Lead', manual: 'Manual' }[seq.trigger_type] || seq.trigger_type;
+
+    mc.innerHTML = `
+      <div class="page-topbar" style="padding-bottom:12px">
+        <div class="page-topbar-title">${esc(seq.name)}</div>
+      </div>
+
+      <div class="section">
+        <div class="card" style="padding:18px">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+            <span class="stage-badge stage-${seq.status === 'active' ? 'won' : seq.status === 'paused' ? 'contacted' : 'new'}">${esc(seq.status)}</span>
+            <div style="font-size:0.72rem;color:var(--text-secondary)">${esc(triggerLabel)}</div>
+            ${client ? `<div style="font-size:0.72rem;color:var(--text-secondary)">| ${esc(client.name)}</div>` : ''}
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            ${seq.status === 'draft' ? `<button class="btn-pill" id="activate-seq" style="font-size:0.72rem;padding:7px 14px">Activate</button>` : ''}
+            ${seq.status === 'active' ? `<button class="btn-pill-outline" id="pause-seq" style="font-size:0.72rem;padding:7px 14px">Pause</button>` : ''}
+            ${seq.status === 'paused' ? `<button class="btn-pill" id="resume-seq" style="font-size:0.72rem;padding:7px 14px">Resume</button>` : ''}
+            <button class="btn-pill-outline" id="delete-seq" style="font-size:0.72rem;padding:7px 14px;color:var(--red);border-color:var(--red)">Delete</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div class="section-label" style="margin-bottom:0">Steps (${steps.length})</div>
+          <button class="btn-pill" id="add-step-btn" style="font-size:0.72rem;padding:7px 14px">+ Add Step</button>
+        </div>
+        ${steps.length ? `
+        <div class="card">
+          ${steps.map((step, i) => `
+          <div class="table-row" style="flex-direction:column;align-items:flex-start;gap:6px">
+            <div style="display:flex;align-items:center;gap:8px;width:100%">
+              <div style="width:24px;height:24px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:700;flex-shrink:0">${i + 1}</div>
+              <div style="flex:1">
+                <div class="row-name">${esc(step.subject)}</div>
+                <div class="row-sub">${step.delay_hours === 0 ? 'Immediately' : step.delay_hours < 24 ? step.delay_hours + 'h delay' : Math.floor(step.delay_hours / 24) + ' day' + (Math.floor(step.delay_hours / 24) !== 1 ? 's' : '') + ' delay'}</div>
+              </div>
+              <button class="copy-btn remove-step-btn" data-step="${i}" style="color:var(--red)">Remove</button>
+            </div>
+            <div style="font-size:0.72rem;color:var(--text-secondary);line-height:1.5;padding-left:32px;white-space:pre-wrap">${esc(step.body.length > 120 ? step.body.slice(0, 120) + '...' : step.body)}</div>
+          </div>`).join('')}
+        </div>` : `
+        <div class="card">
+          <div class="empty-state" style="padding:24px 16px"><div class="es-text">No steps yet. Add a step to start building your sequence.</div></div>
+        </div>`}
+      </div>
+
+      <div class="section">
+        <div class="section-label">Enrollments (${enrollments.length})</div>
+        ${enrollments.length ? `
+        <div class="card">
+          ${enrollments.map(e => `
+          <div class="table-row">
+            <div class="row-main">
+              <div class="row-name">${esc(e.contacts?.name || e.contacts?.email || 'Contact')}</div>
+              <div class="row-sub">Step ${e.current_step + 1}/${steps.length} | ${esc(e.status)}</div>
+            </div>
+            ${e.status === 'active' ? `<button class="copy-btn cancel-enrollment" data-id="${esc(e.id)}" style="color:var(--red)">Cancel</button>` : `<span class="stage-badge stage-${e.status === 'completed' ? 'won' : 'lost'}">${esc(e.status)}</span>`}
+          </div>`).join('')}
+        </div>` : `
+        <div class="card">
+          <div class="empty-state" style="padding:24px 16px"><div class="es-text">No contacts enrolled yet</div></div>
+        </div>`}
+      </div>
+      <div class="page-spacer"></div>`;
+
+    // Wire status buttons
+    document.getElementById('activate-seq')?.addEventListener('click', async () => {
+      try { await DB.updateSequence(seqId, { status: 'active' }); seq.status = 'active'; draw(); showToast('Sequence activated'); } catch (e) { showToast('Failed'); }
+    });
+    document.getElementById('pause-seq')?.addEventListener('click', async () => {
+      try { await DB.updateSequence(seqId, { status: 'paused' }); seq.status = 'paused'; draw(); showToast('Sequence paused'); } catch (e) { showToast('Failed'); }
+    });
+    document.getElementById('resume-seq')?.addEventListener('click', async () => {
+      try { await DB.updateSequence(seqId, { status: 'active' }); seq.status = 'active'; draw(); showToast('Sequence resumed'); } catch (e) { showToast('Failed'); }
+    });
+    document.getElementById('delete-seq')?.addEventListener('click', async () => {
+      if (!confirm('Delete this sequence?')) return;
+      try { await DB.deleteSequence(seqId); showToast('Deleted'); location.hash = '#sequences'; } catch (e) { showToast('Failed'); }
+    });
+
+    // Remove step
+    mc.querySelectorAll('.remove-step-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.step);
+        const newSteps = [...steps];
+        newSteps.splice(idx, 1);
+        try { await DB.updateSequence(seqId, { steps: newSteps }); seq.steps = newSteps; draw(); showToast('Step removed'); } catch (e) { showToast('Failed'); }
+      });
+    });
+
+    // Cancel enrollment
+    mc.querySelectorAll('.cancel-enrollment').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try { await DB.updateEnrollment(btn.dataset.id, { status: 'cancelled' }); const idx = enrollments.findIndex(en => en.id === btn.dataset.id); if (idx >= 0) enrollments[idx].status = 'cancelled'; draw(); showToast('Enrollment cancelled'); } catch (e) { showToast('Failed'); }
+      });
+    });
+
+    // Add step
+    document.getElementById('add-step-btn')?.addEventListener('click', () => {
+      showAddStepModal(seqId, seq, draw);
+    });
+  }
+
+  draw();
+}
+
+function showAddStepModal(seqId, seq, refreshFn) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Add Step</div>
+        <button class="modal-close" id="step-close">x</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Delay (hours after previous step)</label>
+          <input id="step-delay" type="number" min="0" value="24" />
+        </div>
+        <div class="form-group">
+          <label>Subject line</label>
+          <input id="step-subject" type="text" placeholder="Email subject..." />
+        </div>
+        <div class="form-group">
+          <label>Email body (use {{first_name}}, {{business_name}} for personalization)</label>
+          <textarea id="step-body" rows="6" placeholder="Email content..." style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.82rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none;resize:vertical"></textarea>
+        </div>
+        <div class="modal-err" id="step-err"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-pill" id="step-save" style="flex:1">Add Step</button>
+        <button class="btn-pill-outline" id="step-cancel">Cancel</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(backdrop);
+  const close = () => backdrop.remove();
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+  document.getElementById('step-close')?.addEventListener('click', close);
+  document.getElementById('step-cancel')?.addEventListener('click', close);
+
+  document.getElementById('step-save')?.addEventListener('click', async () => {
+    const delay = parseInt(document.getElementById('step-delay').value) || 0;
+    const subject = document.getElementById('step-subject').value.trim();
+    const body = document.getElementById('step-body').value.trim();
+    if (!subject || !body) { document.getElementById('step-err').textContent = 'Subject and body are required.'; return; }
+
+    const steps = Array.isArray(seq.steps) ? [...seq.steps] : [];
+    steps.push({ delay_hours: delay, subject, body });
+
+    try {
+      await DB.updateSequence(seqId, { steps });
+      seq.steps = steps;
+      close();
+      refreshFn();
+      showToast('Step added');
+    } catch (e) {
+      document.getElementById('step-err').textContent = e.message || 'Failed';
+    }
+  });
+}
+
+function showCreateSeqModal(clients, sequencesList, refreshFn) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Create Sequence</div>
+        <button class="modal-close" id="cseq-close">x</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Client</label>
+          <select id="cseq-client" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.88rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
+            ${clients.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Name</label>
+          <input id="cseq-name" type="text" placeholder="Welcome Sequence" />
+        </div>
+        <div class="form-group">
+          <label>Trigger</label>
+          <select id="cseq-trigger" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.88rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
+            <option value="manual">Manual enrollment</option>
+            <option value="new_subscriber">On new subscriber</option>
+            <option value="new_lead">On new lead</option>
+          </select>
+        </div>
+        <div class="modal-err" id="cseq-err"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-pill" id="cseq-save" style="flex:1">Create</button>
+        <button class="btn-pill-outline" id="cseq-cancel">Cancel</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(backdrop);
+  const close = () => backdrop.remove();
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+  document.getElementById('cseq-close')?.addEventListener('click', close);
+  document.getElementById('cseq-cancel')?.addEventListener('click', close);
+
+  document.getElementById('cseq-save')?.addEventListener('click', async () => {
+    const name = document.getElementById('cseq-name').value.trim();
+    if (!name) { document.getElementById('cseq-err').textContent = 'Name is required.'; return; }
+
+    try {
+      const newSeq = await DB.addSequence({
+        client_id: document.getElementById('cseq-client').value,
+        name,
+        trigger_type: document.getElementById('cseq-trigger').value,
+        steps: [],
+        status: 'draft',
+      });
+      sequencesList.unshift(newSeq);
+      close();
+      showToast('Sequence created');
+      location.hash = '#sequence/' + newSeq.id;
+    } catch (e) {
+      document.getElementById('cseq-err').textContent = e.message || 'Failed';
+    }
+  });
+}
+
+function showTemplateModal(clients, sequencesList, refreshFn) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Start from Template</div>
+        <button class="modal-close" id="tpl-close">x</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Client</label>
+          <select id="tpl-client" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.88rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
+            ${clients.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Template</label>
+          ${SEQUENCE_TEMPLATES.map((t, i) => `
+          <div class="template-option" data-idx="${i}" style="padding:12px;border:1.5px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px;cursor:pointer;transition:all 0.12s">
+            <div style="font-weight:600;font-size:0.82rem;color:var(--text-primary)">${esc(t.name)}</div>
+            <div style="font-size:0.7rem;color:var(--text-secondary);margin-top:2px">${t.steps.length} steps | Trigger: ${esc(t.trigger_type.replace('_', ' '))}</div>
+          </div>`).join('')}
+        </div>
+        <div class="modal-err" id="tpl-err"></div>
+      </div>
+    </div>`;
+
+  document.body.appendChild(backdrop);
+  const close = () => backdrop.remove();
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+  document.getElementById('tpl-close')?.addEventListener('click', close);
+
+  backdrop.querySelectorAll('.template-option').forEach(opt => {
+    opt.addEventListener('click', async () => {
+      const idx = parseInt(opt.dataset.idx);
+      const tpl = SEQUENCE_TEMPLATES[idx];
+      const clientId = document.getElementById('tpl-client').value;
+
+      try {
+        const newSeq = await DB.addSequence({
+          client_id: clientId,
+          name: tpl.name,
+          trigger_type: tpl.trigger_type,
+          steps: tpl.steps,
+          status: 'draft',
+        });
+        sequencesList.unshift(newSeq);
+        close();
+        showToast('Template applied');
+        location.hash = '#sequence/' + newSeq.id;
+      } catch (e) {
+        document.getElementById('tpl-err').textContent = e.message || 'Failed';
+      }
+    });
+  });
+}
+
+// ── Ticket submission modal (client-facing) ───────────────────
+function showTicketModal(client) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Request a Change</div>
+        <button class="modal-close" id="tk-close">x</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Category</label>
+          <select id="tk-category" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.88rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none">
+            <option value="hours">Update Hours</option>
+            <option value="menu_services">Update Menu / Services</option>
+            <option value="photos">Update Photos</option>
+            <option value="content">Update Content / Text</option>
+            <option value="bug">Report a Bug / Error</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>What do you need changed?</label>
+          <textarea id="tk-description" rows="4" placeholder="Describe what you'd like us to change..." style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.82rem;font-family:inherit;color:var(--text-primary);background:var(--soft-gray);outline:none;resize:vertical"></textarea>
+        </div>
+        <div class="modal-err" id="tk-err"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-pill" id="tk-submit" style="flex:1">Submit Request</button>
+        <button class="btn-pill-outline" id="tk-cancel">Cancel</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(backdrop);
+  const close = () => backdrop.remove();
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+  document.getElementById('tk-close')?.addEventListener('click', close);
+  document.getElementById('tk-cancel')?.addEventListener('click', close);
+
+  document.getElementById('tk-submit')?.addEventListener('click', async () => {
+    const description = document.getElementById('tk-description').value.trim();
+    if (!description) { document.getElementById('tk-err').textContent = 'Please describe what you need changed.'; return; }
+
+    const btn = document.getElementById('tk-submit');
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
+
+    try {
+      await DB.addTicket({
+        client_id: client.id,
+        category: document.getElementById('tk-category').value,
+        description,
+        status: 'new',
+      });
+      close();
+      showToast('Request submitted! We\'ll get on it soon.');
+    } catch (e) {
+      document.getElementById('tk-err').textContent = e.message || 'Failed to submit.';
+      btn.disabled = false;
+      btn.textContent = 'Submit Request';
+    }
+  });
+}
+
 // ── Compose & send broadcast email ────────────────────────────
 function showComposeModal(app, client, subscribers) {
   const count = subscribers.length;
@@ -1525,4 +2902,142 @@ function showComposeModal(app, client, subscribers) {
       sendBtn.textContent = `Send to ${count} subscriber${count !== 1 ? 's' : ''}`;
     }
   });
+}
+
+// ── PDF Report Generation ─────────────────────────────────────
+function generateReportPDF(clients, tf) {
+  if (typeof window.jspdf === 'undefined') {
+    showToast('PDF library not loaded');
+    return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const W = 210;
+  let y = 20;
+
+  const period = { today: 'Today', week: 'This Week', month: 'This Month', all: 'All Time' }[tf] || tf;
+  const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  // Header
+  doc.setFillColor(26, 26, 26);
+  doc.rect(0, 0, W, 40, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(22);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Kalnyesgrowth', 20, 18);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Agency Performance Report', 20, 26);
+  doc.text(period + ' | ' + dateStr, 20, 33);
+  y = 52;
+
+  // Summary stats
+  doc.setTextColor(30, 30, 30);
+  const totalRev = clients.reduce((s, c) => s + c.metrics.revenue[tf], 0);
+  const totalSess = clients.reduce((s, c) => s + c.metrics.sessions[tf], 0);
+  const totalLeads = clients.reduce((s, c) => s + c.metrics.leads[tf] + c.metrics.emails[tf], 0);
+  const totalOrders = clients.reduce((s, c) => s + c.metrics.orders[tf], 0);
+
+  doc.setFillColor(240, 247, 255);
+  doc.roundedRect(15, y, W - 30, 28, 3, 3, 'F');
+
+  const stats = [
+    { label: 'Revenue', value: fmt(totalRev) },
+    { label: 'Sessions', value: num(totalSess) },
+    { label: 'Leads', value: num(totalLeads) },
+    { label: 'Orders', value: num(totalOrders) },
+  ];
+
+  const colW = (W - 30) / 4;
+  stats.forEach((st, i) => {
+    const cx = 15 + i * colW + colW / 2;
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 100, 224);
+    doc.text(st.value, cx, y + 12, { align: 'center' });
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 100, 100);
+    doc.text(st.label, cx, y + 20, { align: 'center' });
+  });
+
+  y += 38;
+
+  // Client breakdown table
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(30, 30, 30);
+  doc.text('Client Breakdown', 15, y);
+  y += 8;
+
+  // Table header
+  doc.setFillColor(245, 245, 245);
+  doc.rect(15, y, W - 30, 8, 'F');
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(80, 80, 80);
+  doc.text('Client', 18, y + 5.5);
+  doc.text('Revenue', 85, y + 5.5);
+  doc.text('Sessions', 115, y + 5.5);
+  doc.text('Leads', 145, y + 5.5);
+  doc.text('Orders', 170, y + 5.5);
+  y += 10;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(30, 30, 30);
+  doc.setFontSize(8);
+
+  clients.forEach((c, i) => {
+    if (y > 270) {
+      doc.addPage();
+      y = 20;
+    }
+    const rev = c.metrics.revenue[tf];
+    const leads = c.metrics.leads[tf] + c.metrics.emails[tf];
+    const sess = c.metrics.sessions[tf];
+    const orders = c.metrics.orders[tf];
+
+    if (i % 2 === 0) {
+      doc.setFillColor(250, 250, 250);
+      doc.rect(15, y - 4, W - 30, 8, 'F');
+    }
+
+    doc.setTextColor(30, 30, 30);
+    doc.text(c.name.length > 30 ? c.name.slice(0, 30) + '...' : c.name, 18, y);
+    doc.text(fmt(rev), 85, y);
+    doc.text(num(sess), 115, y);
+    doc.text(num(leads), 145, y);
+    doc.text(num(orders), 170, y);
+    y += 8;
+  });
+
+  // Chart image (if available)
+  const chartCanvas = document.getElementById('report-chart');
+  if (chartCanvas) {
+    try {
+      if (y > 200) { doc.addPage(); y = 20; }
+      y += 8;
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Revenue Trend', 15, y);
+      y += 6;
+      const imgData = chartCanvas.toDataURL('image/png');
+      doc.addImage(imgData, 'PNG', 15, y, W - 30, 60);
+      y += 68;
+    } catch (_) {}
+  }
+
+  // Footer
+  if (y > 260) { doc.addPage(); y = 20; }
+  y = 280;
+  doc.setDrawColor(200, 200, 200);
+  doc.line(15, y, W - 15, y);
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(150, 150, 150);
+  doc.text('Generated by Kalnyesgrowth Agency Dashboard | ' + dateStr, W / 2, y + 5, { align: 'center' });
+
+  doc.save('KG-Report-' + period.replace(/\s/g, '-') + '-' + dateStr.replace(/[,\s]+/g, '-') + '.pdf');
+  showToast('PDF downloaded');
 }

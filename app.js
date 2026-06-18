@@ -1,6 +1,13 @@
 // ── Router ─────────────────────────────────────────────────────
 import { getSession, clearSession } from './utils.js';
-import { loginView, clientsView, clientDetailView, clientSelfView, reportsView, settingsView } from './views.js';
+import {
+  loginView, clientsView, clientDetailView, clientSelfView,
+  reportsView, settingsView,
+  leadsView, leadDetailView,
+  contactsView, contactDetailView,
+  ticketsView,
+  sequencesView, sequenceDetailView,
+} from './views.js';
 
 const app = document.getElementById('app');
 
@@ -21,6 +28,22 @@ async function route() {
 
   const clientMatch = hash.match(/^#client\/(.+)$/);
   if (clientMatch) { clientDetailView(app, clientMatch[1]); return; }
+
+  if (hash === '#leads') { leadsView(app); return; }
+
+  const leadMatch = hash.match(/^#lead\/(.+)$/);
+  if (leadMatch) { leadDetailView(app, leadMatch[1]); return; }
+
+  if (hash === '#contacts') { contactsView(app); return; }
+
+  const contactMatch = hash.match(/^#contact\/(.+)$/);
+  if (contactMatch) { contactDetailView(app, contactMatch[1]); return; }
+
+  if (hash === '#tickets')    { ticketsView(app);    return; }
+  if (hash === '#sequences')  { sequencesView(app);  return; }
+
+  const seqMatch = hash.match(/^#sequence\/(.+)$/);
+  if (seqMatch) { sequenceDetailView(app, seqMatch[1]); return; }
 
   if (hash === '#reports')  { reportsView(app);  return; }
   if (hash === '#settings') { settingsView(app); return; }
