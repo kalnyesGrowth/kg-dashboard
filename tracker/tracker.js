@@ -119,7 +119,7 @@
     }
   }
 
-  // Auto-detect form submissions
+  // Auto-detect form submissions (proper <form> elements)
   document.addEventListener('submit', function (e) {
     var form = e.target;
     if (!form || form.tagName !== 'FORM') return;
@@ -127,6 +127,23 @@
     if (data.email || data.phone || data.name) {
       sendLead(data);
       send('lead', { form: form.id || form.name || 'auto' });
+    }
+  }, true);
+
+  // Auto-detect button clicks on non-form submit buttons
+  var _lastLeadTs = 0;
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('button, [type="submit"], .form-submit, [class*="submit"], [class*="cta"]');
+    if (!btn) return;
+    if (btn.closest('form')) return;
+    if (Date.now() - _lastLeadTs < 3000) return;
+    var container = btn.closest('section, div[class*="form"], div[class*="contact"], div[class*="quote"]') || btn.parentElement?.parentElement;
+    if (!container) return;
+    var data = extractFormData(container);
+    if (data.email || data.phone || data.name) {
+      _lastLeadTs = Date.now();
+      sendLead(data);
+      send('lead', { form: 'button-capture' });
     }
   }, true);
 
