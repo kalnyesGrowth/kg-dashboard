@@ -83,6 +83,50 @@ export async function fetchRevenueSeries(clientId, days) {
   }));
 }
 
+// ── Daily series (all metrics per day) ───────────────────────
+export async function fetchDailySeries(clientId, days) {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const { data, error } = await supabase
+    .from('daily_metrics')
+    .select('date, sessions, leads, emails, revenue, orders, add_to_carts, pageviews')
+    .eq('client_id', clientId)
+    .gte('date', since.toISOString().slice(0, 10))
+    .order('date', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+// ── Team members (via edge function) ─────────────────────────
+export async function fetchTeamMembers() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return [];
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/invite-team-member`, {
+    method: 'GET',
+    headers: { 'Authorization': `Bearer ${session.access_token}`, 'apikey': SUPABASE_ANON_KEY },
+  });
+  if (!res.ok) return [];
+  const json = await res.json();
+  return json.team || [];
+}
+
+export async function inviteTeamMember(email, password, name) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/invite-team-member`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+      'apikey': SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({ email, password, name }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'Failed to invite');
+  return json;
+}
+
 // ── Recent orders ──────────────────────────────────────────────
 export async function fetchRecentOrders(clientId, limit = 5) {
   const { data, error } = await supabase

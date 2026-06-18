@@ -569,205 +569,238 @@ export async function clientSelfView(app, clientId) {
   }
   if (!client) { clearSession().then(() => loginView(app)); return; }
 
-  // Initial render with cached/mock data
   renderClientDashboard(app, client, null, loginView);
 
-  // Fetch live data in background and re-render
   (async () => {
     try {
-      const [metrics, todayLive, sw, sm, sa, liveEmails, recentEvents, allSubs, leadData, reviewData] = await Promise.all([
+      const [metrics, todayLive, s7, s30, s90, leadData, reviewData, recentEvents, team] = await Promise.all([
         DB.fetchMetricsSummary(client.id),
         DB.fetchLiveTodayMetrics(client.id),
-        DB.fetchRevenueSeries(client.id, 7),
-        DB.fetchRevenueSeries(client.id, 30),
-        DB.fetchRevenueSeries(client.id, 90),
-        DB.fetchRecentEmails(client.id),
-        DB.fetchRecentEvents(client.id, 20),
-        DB.fetchAllSubscribers(client.id),
+        DB.fetchDailySeries(client.id, 7),
+        DB.fetchDailySeries(client.id, 30),
+        DB.fetchDailySeries(client.id, 90),
         DB.fetchLeads(client.id).catch(() => []),
         DB.fetchReviews(client.id).catch(() => []),
+        DB.fetchRecentEvents(client.id, 20),
+        DB.fetchTeamMembers().catch(() => []),
       ]);
-      if (!document.getElementById('cdb-root')) return;
+      if (!document.getElementById('sp-root')) return;
       const patchedMetrics = { ...metrics };
       for (const key of ['revenue','sessions','leads','emails','orders','addToCarts']) {
         patchedMetrics[key] = { ...metrics[key], today: todayLive[key] ?? metrics[key].today };
       }
       renderClientDashboard(app, client, {
         metrics: patchedMetrics,
-        revenueSeries: { week: sw, month: sm, all: sa },
-        recentEmails: liveEmails,
-        recentEvents,
-        subscribers: allSubs,
+        series: { 7: s7, 30: s30, 90: s90 },
         leads: leadData || [],
         reviews: reviewData || [],
+        recentEvents,
+        team,
       }, loginView);
     } catch (_) {}
   })();
 }
 
-// ── Client Self Dashboard ──────────────────────────────────────
+// ── Client Self Dashboard (Shopify-style) ─────────────────────
 function renderClientDashboard(app, client, liveData, loginViewFn) {
-  const metrics      = liveData?.metrics       || client.metrics;
-  const revSer       = liveData?.revenueSeries  || client.revenueSeries;
-  const recentEvents = liveData?.recentEvents   || [];
-  const subscribers  = liveData?.subscribers    || [];
-  const leads        = liveData?.leads          || [];
-  const reviews      = liveData?.reviews        || [];
+  const metrics      = liveData?.metrics     || client.metrics;
+  const seriesData   = liveData?.series      || {};
+  const recentEvents = liveData?.recentEvents || [];
+  const leads        = liveData?.leads       || [];
+  const reviews      = liveData?.reviews     || [];
+  const team         = liveData?.team        || [];
   const m            = metrics;
 
-  const serWeek = revSer?.week || [];
-  const serMonth = revSer?.month || [];
-  const serAll = revSer?.all || [];
+  const s30 = seriesData[30] || [];
 
-  const today = new Date();
-  const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  function spSparkline(series, key) {
+    const vals = series.map(d => Number(d[key] || 0));
+    if (vals.length < 2) return '';
+    const mn = Math.min(...vals), mx = Math.max(...vals), rng = mx - mn || 1;
+    const W = 80, H = 28;
+    const pts = vals.map((v, i) => {
+      const x = (i / (vals.length - 1)) * W;
+      const y = 2 + (1 - (v - mn) / rng) * (H - 4);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" fill="none"><polyline points="${pts}" stroke="#0064E0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
 
-  const stageColors = { new:'#3B82F6', contacted:'#F59E0B', quoted:'#8B5CF6', won:'#22C55E', lost:'#EF4444' };
+  function calcTrend(series, key) {
+    if (!series || series.length < 4) return null;
+    const half = Math.floor(series.length / 2);
+    const recent = series.slice(-half).reduce((s, d) => s + Number(d[key] || 0), 0);
+    const prev = series.slice(0, half).reduce((s, d) => s + Number(d[key] || 0), 0);
+    if (prev === 0) return recent > 0 ? 100 : null;
+    return Math.round(((recent - prev) / prev) * 100);
+  }
+
+  function trendHtml(pct) {
+    if (pct === null) return '';
+    const cls = pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat';
+    const arrow = pct > 0 ? '↑' : pct < 0 ? '↓' : '';
+    return `<span class="sp-trend ${cls}">${arrow}${Math.abs(pct)}%</span>`;
+  }
+
+  function statTotal(series, key) {
+    return (series || []).reduce((s, d) => s + Number(d[key] || 0), 0);
+  }
+
+  const sessionsTrend = calcTrend(s30, 'sessions');
+  const leadsTrend = calcTrend(s30, 'leads');
+  const emailsTrend = calcTrend(s30, 'emails');
+  const pvTrend = calcTrend(s30, 'pageviews');
+
+  const avgRating = reviews.length ? (reviews.reduce((a, r) => a + (r.rating || 0), 0) / reviews.length) : 0;
 
   const dashContent = `
-    <div class="cd-page">
-      <div class="cd-header">
-        <div>
-          <h1 class="cd-greeting">${greeting()}, ${esc(client.name.split(' ')[0])}</h1>
-          <p class="cd-date">${dateStr}</p>
-        </div>
-        <div class="cd-header-right">
-          <div class="cd-avatar" style="background:${esc(client.color)}">${esc(client.initials)}</div>
-        </div>
-      </div>
-
-      <div class="cd-stats">
-        <div class="cd-stat-card">
-          <div class="cd-stat-label">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            New Leads
-          </div>
-          <div class="cd-stat-value" style="color:#3B82F6">${num(m.leads.month)}</div>
-          <div class="cd-stat-change cd-up">This month</div>
-        </div>
-        <div class="cd-stat-card">
-          <div class="cd-stat-label">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22C55E" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
-            Contacts
-          </div>
-          <div class="cd-stat-value" style="color:#22C55E">${subscribers.length.toLocaleString()}</div>
-          <div class="cd-stat-change cd-up">Total active</div>
-        </div>
-        <div class="cd-stat-card">
-          <div class="cd-stat-label">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-            Website Visitors
-          </div>
-          <div class="cd-stat-value" style="color:#8B5CF6">${num(m.sessions.month)}</div>
-          <div class="cd-stat-change cd-up">This month</div>
+    <div class="sp-page">
+      <div class="sp-header">
+        <h1 class="sp-title">Overview</h1>
+        <div class="sp-range-wrap">
+          <button class="sp-range-btn" data-range="7">Last 7 days</button>
+          <button class="sp-range-btn active" data-range="30">Last 30 days</button>
+          <button class="sp-range-btn" data-range="90">Last 90 days</button>
         </div>
       </div>
 
-      <div class="cd-grid">
-        <div class="cd-card">
-          <div class="cd-card-top">
-            <h3 class="cd-card-title">Recent Leads</h3>
+      <div class="sp-stats">
+        <div class="sp-stat">
+          <div class="sp-stat-title">Website visitors</div>
+          <div class="sp-stat-row">
+            <span class="sp-stat-num">${statTotal(s30, 'sessions').toLocaleString()}</span>
+            ${trendHtml(sessionsTrend)}
           </div>
-          <div class="cd-leads-list">
-            ${leads.length ? leads.slice(0, 5).map(l => `
-            <div class="cd-lead-row">
-              <div class="cd-lead-ava" style="background:${stageColors[l.stage] || '#94A3B8'}">${esc((l.name || 'L')[0].toUpperCase())}</div>
-              <div class="cd-lead-info">
-                <div class="cd-lead-name">${esc(l.name || 'Unknown')}</div>
-                <div class="cd-lead-email">${esc(l.email || l.phone || '')}</div>
-              </div>
-              <span class="cd-lead-badge" style="background:${stageColors[l.stage] || '#94A3B8'}">${esc((l.stage || 'new').toUpperCase())}</span>
-            </div>`).join('') : `
-            <div class="cd-empty">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-              <p>New leads from your website will appear here</p>
-            </div>`}
-          </div>
+          <div class="sp-sparkline-wrap">${spSparkline(s30, 'sessions')}</div>
         </div>
-
-        <div class="cd-card">
-          <div class="cd-card-top">
-            <h3 class="cd-card-title">Website Visitors</h3>
-            <span class="cd-visitor-total">Visitors: ${num(m.sessions.month)}</span>
+        <div class="sp-stat">
+          <div class="sp-stat-title">New leads</div>
+          <div class="sp-stat-row">
+            <span class="sp-stat-num">${statTotal(s30, 'leads').toLocaleString()}</span>
+            ${trendHtml(leadsTrend)}
           </div>
-          <div class="cd-chart-tabs">
-            <button class="cd-tab active" data-range="7">7 days</button>
-            <button class="cd-tab" data-range="30">30 days</button>
-            <button class="cd-tab" data-range="90">90 days</button>
+          <div class="sp-sparkline-wrap">${spSparkline(s30, 'leads')}</div>
+        </div>
+        <div class="sp-stat">
+          <div class="sp-stat-title">Email captures</div>
+          <div class="sp-stat-row">
+            <span class="sp-stat-num">${statTotal(s30, 'emails').toLocaleString()}</span>
+            ${trendHtml(emailsTrend)}
           </div>
-          <div class="cd-chart-wrap">
-            <canvas id="cdb-chart"></canvas>
+          <div class="sp-sparkline-wrap">${spSparkline(s30, 'emails')}</div>
+        </div>
+        <div class="sp-stat">
+          <div class="sp-stat-title">Page views</div>
+          <div class="sp-stat-row">
+            <span class="sp-stat-num">${statTotal(s30, 'pageviews').toLocaleString()}</span>
+            ${trendHtml(pvTrend)}
           </div>
+          <div class="sp-sparkline-wrap">${spSparkline(s30, 'pageviews')}</div>
         </div>
       </div>
 
-      <div class="cd-card cd-reviews-card">
-        <h3 class="cd-card-title" style="margin-bottom:16px">Google Reviews</h3>
-        <div class="cd-reviews-grid">
-          <div class="cd-review-summary">
-            <div class="cd-review-score">${reviews.length ? (reviews.reduce((a,r) => a + (r.rating||0), 0) / reviews.length).toFixed(1) : '0.0'}</div>
-            <div class="cd-review-stars">${'★'.repeat(Math.round(reviews.length ? reviews.reduce((a,r) => a + (r.rating||0), 0) / reviews.length : 0))}${'☆'.repeat(5 - Math.round(reviews.length ? reviews.reduce((a,r) => a + (r.rating||0), 0) / reviews.length : 0))}</div>
-            <div class="cd-review-count">${reviews.length ? `Based on ${reviews.length} review${reviews.length > 1 ? 's' : ''}` : 'No reviews yet'}</div>
+      <div class="sp-card">
+        <div class="sp-card-header">
+          <div>
+            <div class="sp-card-title">Sessions over time</div>
+            <div class="sp-card-num" id="sp-chart-total">${statTotal(s30, 'sessions').toLocaleString()} ${trendHtml(sessionsTrend)}</div>
           </div>
-          ${reviews.length ? reviews.slice(0, 3).map(r => `
-          <div class="cd-review-item">
-            <div class="cd-review-top">
-              <div class="cd-review-ava">${esc((r.author || 'A')[0])}</div>
+        </div>
+        <div class="sp-chart-area">
+          <canvas id="sp-chart"></canvas>
+        </div>
+      </div>
+
+      <div class="sp-grid">
+        <div class="sp-card">
+          <div class="sp-card-header"><div class="sp-card-title">Recent leads</div></div>
+          ${leads.length ? leads.slice(0, 6).map(l => `
+          <div class="sp-lead-row">
+            <div class="sp-lead-ava">${esc((l.name || 'L')[0].toUpperCase())}</div>
+            <div class="sp-lead-info">
+              <div class="sp-lead-name">${esc(l.name || 'Unknown')}</div>
+              <div class="sp-lead-sub">${esc(l.email || l.phone || '')}</div>
+            </div>
+            <span class="sp-lead-badge">${esc(l.stage || 'new')}</span>
+          </div>`).join('') : `
+          <div class="sp-empty">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+            <p>Leads from your website will appear here</p>
+          </div>`}
+        </div>
+
+        <div class="sp-card">
+          <div class="sp-card-header"><div class="sp-card-title">Google reviews</div></div>
+          ${reviews.length ? `
+          <div class="sp-review-summary">
+            <div class="sp-review-big">${avgRating.toFixed(1)}</div>
+            <div>
+              <div class="sp-review-meta-stars">${'★'.repeat(Math.round(avgRating))}${'☆'.repeat(5 - Math.round(avgRating))}</div>
+              <div class="sp-review-meta">${reviews.length} review${reviews.length > 1 ? 's' : ''}</div>
+            </div>
+          </div>
+          ${reviews.slice(0, 3).map(r => `
+          <div class="sp-review">
+            <div class="sp-review-top">
+              <div class="sp-review-ava">${esc((r.author || 'A')[0])}</div>
               <div>
-                <div class="cd-review-author">${esc(r.author || 'Anonymous')}</div>
-                <div class="cd-review-date">${'★'.repeat(r.rating || 0)} ${r.review_date ? new Date(r.review_date).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) : ''}</div>
+                <div class="sp-review-name">${esc(r.author || 'Anonymous')}</div>
+                <div class="sp-review-stars">${'★'.repeat(r.rating || 0)} ${r.review_date ? new Date(r.review_date).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : ''}</div>
               </div>
             </div>
-            <p class="cd-review-text">${esc((r.text || '').slice(0, 120))}${(r.text || '').length > 120 ? '...' : ''}</p>
-          </div>`).join('') : `
-          <div class="cd-empty" style="grid-column:span 3">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" stroke-width="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-            <p>Google reviews will sync here automatically</p>
+            <p class="sp-review-text">${esc((r.text || '').slice(0, 140))}${(r.text || '').length > 140 ? '...' : ''}</p>
+          </div>`).join('')}` : `
+          <div class="sp-empty">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <p>Reviews will sync here automatically</p>
           </div>`}
         </div>
       </div>
 
-      <div class="cd-grid">
-        <div class="cd-card">
-          <div class="cd-card-top">
-            <h3 class="cd-card-title">Live Activity</h3>
-          </div>
-          ${recentEvents.length ? recentEvents.slice(0, 5).map(e => `
-          <div class="cd-activity-row">
-            <div class="cd-activity-dot" style="background:${e.event_type === 'pageview' ? '#3B82F6' : e.event_type === 'form_submit' ? '#22C55E' : '#8B5CF6'}"></div>
-            <div class="cd-activity-info">
-              <span class="cd-activity-type">${esc(e.event_type.replace(/_/g,' '))}</span>
-              ${e.page ? `<span class="cd-activity-page">${esc(e.page.length > 30 ? e.page.slice(0,30) + '...' : e.page)}</span>` : ''}
+      <div class="sp-grid">
+        <div class="sp-card">
+          <div class="sp-card-header"><div class="sp-card-title">Activity</div></div>
+          ${recentEvents.length ? recentEvents.slice(0, 6).map(e => `
+          <div class="sp-activity-row">
+            <div class="sp-activity-dot"></div>
+            <div style="flex:1;min-width:0">
+              <div class="sp-activity-type">${esc(e.event_type.replace(/_/g, ' '))}</div>
+              ${e.page ? `<div class="sp-activity-page">${esc(e.page)}</div>` : ''}
             </div>
-            <span class="cd-activity-time">${timeAgo(e.ts)}</span>
+            <span class="sp-activity-time">${timeAgo(e.ts)}</span>
           </div>`).join('') : `
-          <div class="cd-empty">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-            <p>Activity from your website will appear here</p>
+          <div class="sp-empty">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            <p>Website activity will appear here</p>
           </div>`}
         </div>
 
-        <div class="cd-card">
-          <div class="cd-card-top">
-            <h3 class="cd-card-title">Quick Actions</h3>
+        <div class="sp-card">
+          <div class="sp-card-header">
+            <div class="sp-card-title">Team (${team.length})</div>
+            <button class="sp-range-btn" id="sp-invite-btn" style="font-size:12px;padding:4px 10px">+ Invite</button>
           </div>
-          <div class="cd-actions">
-            <button class="cd-action-btn" id="cdb-request-change">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
-              Request a Change
+          ${team.length ? team.map(t => `
+          <div class="sp-team-row">
+            <div class="sp-team-ava">${esc((t.name || t.email || 'U')[0].toUpperCase())}</div>
+            <div class="sp-team-info">
+              <div class="sp-team-name">${esc(t.name || t.email.split('@')[0])}</div>
+              <div class="sp-team-email">${esc(t.email)}</div>
+            </div>
+          </div>`).join('') : `
+          <div class="sp-empty">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+            <p>Invite team members to share this dashboard</p>
+          </div>`}
+          <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+            <a class="sp-action-btn" href="https://${esc(client.domain || '')}" target="_blank" rel="noopener" style="flex:1;justify-content:center">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              View site
+            </a>
+            <button class="sp-action-btn" id="sp-request-btn" style="flex:1;justify-content:center">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+              Request change
             </button>
-            <a class="cd-action-btn" href="https://${esc(client.domain || '')}" target="_blank" rel="noopener">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-              View Website
-            </a>
-            <a class="cd-action-btn" href="https://business.google.com" target="_blank" rel="noopener">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-              Google Reviews
-            </a>
-            <a class="cd-action-btn" href="mailto:jessyt440@gmail.com">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-              Contact Manager
-            </a>
           </div>
         </div>
       </div>
@@ -784,29 +817,26 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
         <nav class="sidebar-nav">
           <button class="nav-link active" data-nav="dashboard"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span> Home</button>
           <button class="nav-link" data-nav="leads"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></span> Leads</button>
-          <button class="nav-link" data-nav="contacts"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg></span> Contacts</button>
-          <button class="nav-link" data-nav="email"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></span> Email</button>
           <button class="nav-link" data-nav="reviews"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span> Reviews</button>
           <button class="nav-link" data-nav="tickets"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg></span> Requests</button>
-          <button class="nav-link" data-nav="reports"><span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span> Reports</button>
         </nav>
         <div class="sidebar-footer">
           <div class="sidebar-user">
-            <div class="sidebar-avatar" style="background:${esc(client.color)}">${esc(client.initials)}</div>
+            <div class="sidebar-avatar">${esc(client.initials)}</div>
             <div class="sidebar-user-name">${esc(client.name)}</div>
           </div>
-          <button class="sidebar-signout" id="cdb-logout">Sign out</button>
+          <button class="sidebar-signout" id="sp-logout">Sign out</button>
         </div>
       </aside>
       <div class="mobile-header">
         <button class="hamburger" id="hamburger">${HAMBURGER}</button>
         <div style="flex:1;font-size:0.85rem;font-weight:700;color:rgba(255,255,255,0.9);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:-0.01em">${esc(client.name)}</div>
         <div class="mobile-actions">
-          <button class="mobile-icon-btn" id="mobile-logout" title="Sign out">⏻</button>
+          <button class="mobile-icon-btn" id="mobile-logout" title="Sign out">&#x23FB;</button>
         </div>
       </div>
       <main class="main-content">
-        <div id="cdb-root">${dashContent}</div>
+        <div id="sp-root">${dashContent}</div>
       </main>
     </div>`;
 
@@ -822,62 +852,157 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
     closeSb();
     const nav = btn.dataset.nav;
     if (nav === 'reviews') window.open('https://business.google.com', '_blank');
-    else if (nav === 'email') window.location.href = 'mailto:jessyt440@gmail.com';
     else if (nav === 'tickets') showTicketModal(client);
   }));
 
-  document.getElementById('cdb-logout')?.addEventListener('click', () => clearSession().then(() => loginViewFn(app)));
+  document.getElementById('sp-logout')?.addEventListener('click', () => clearSession().then(() => loginViewFn(app)));
   document.getElementById('mobile-logout')?.addEventListener('click', () => clearSession().then(() => loginViewFn(app)));
-  document.getElementById('cdb-request-change')?.addEventListener('click', () => showTicketModal(client));
+  document.getElementById('sp-request-btn')?.addEventListener('click', () => showTicketModal(client));
 
-  // Chart with time range tabs
-  const chartData = { 7: serWeek, 30: serMonth, 90: serAll };
+  // Invite team member
+  document.getElementById('sp-invite-btn')?.addEventListener('click', () => {
+    const modal = document.createElement('div');
+    modal.className = 'sp-modal-overlay';
+    modal.innerHTML = `
+      <div class="sp-modal">
+        <h3>Invite team member</h3>
+        <div class="sp-field"><label>Name</label><input type="text" id="sp-inv-name" placeholder="John Smith" /></div>
+        <div class="sp-field"><label>Email</label><input type="email" id="sp-inv-email" placeholder="john@business.com" /></div>
+        <div class="sp-field"><label>Password</label><input type="password" id="sp-inv-pass" placeholder="Min 8 characters" /></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+          <button class="sp-range-btn" id="sp-inv-cancel">Cancel</button>
+          <button class="sp-range-btn active" id="sp-inv-submit">Send invite</button>
+        </div>
+        <div id="sp-inv-err" style="color:#c8281e;font-size:12px;margin-top:8px"></div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('#sp-inv-cancel').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+    modal.querySelector('#sp-inv-submit').addEventListener('click', async () => {
+      const email = document.getElementById('sp-inv-email').value.trim();
+      const password = document.getElementById('sp-inv-pass').value;
+      const name = document.getElementById('sp-inv-name').value.trim();
+      const errEl = document.getElementById('sp-inv-err');
+      if (!email || !password) { errEl.textContent = 'Email and password are required'; return; }
+      if (password.length < 8) { errEl.textContent = 'Password must be at least 8 characters'; return; }
+      const btn = modal.querySelector('#sp-inv-submit');
+      btn.disabled = true; btn.textContent = 'Sending...';
+      try {
+        await DB.inviteTeamMember(email, password, name);
+        modal.remove();
+        clientSelfView(app, client.id);
+      } catch (err) {
+        errEl.textContent = err.message || 'Failed to invite';
+        btn.disabled = false; btn.textContent = 'Send invite';
+      }
+    });
+  });
 
-  function renderChart(range) {
-    const canvas = document.getElementById('cdb-chart');
+  // Chart with time range switching
+  const allSeries = seriesData;
+  let currentRange = 30;
+
+  function drawChart(range) {
+    currentRange = range;
+    const canvas = document.getElementById('sp-chart');
     if (!canvas) return;
     const existing = Chart.getChart(canvas);
     if (existing) existing.destroy();
-    const series = chartData[range] || [];
-    const labels = series.map(p => p.date || '');
-    const values = series.map(p => typeof p === 'number' ? p : (p.revenue || 0));
+    const series = allSeries[range] || [];
+    if (!series.length) return;
+
+    const labels = series.map(d => {
+      const dt = new Date(d.date + 'T00:00:00');
+      return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+    const values = series.map(d => Number(d.sessions || 0));
+    const total = values.reduce((s, v) => s + v, 0);
+    const trend = calcTrend(series, 'sessions');
+
+    const totalEl = document.getElementById('sp-chart-total');
+    if (totalEl) totalEl.innerHTML = total.toLocaleString() + ' ' + trendHtml(trend);
+
+    // Also update stat cards
+    const statEls = document.querySelectorAll('.sp-stat');
+    if (statEls.length >= 4) {
+      const keys = ['sessions', 'leads', 'emails', 'pageviews'];
+      keys.forEach((key, i) => {
+        const el = statEls[i];
+        if (!el) return;
+        const t = statTotal(series, key);
+        const tr = calcTrend(series, key);
+        el.querySelector('.sp-stat-num').textContent = t.toLocaleString();
+        const trendEl = el.querySelector('.sp-trend');
+        if (trendEl) trendEl.outerHTML = trendHtml(tr);
+        else {
+          const row = el.querySelector('.sp-stat-row');
+          if (row && tr !== null) row.insertAdjacentHTML('beforeend', trendHtml(tr));
+        }
+        el.querySelector('.sp-sparkline-wrap').innerHTML = spSparkline(series, key);
+      });
+    }
+
     new Chart(canvas, {
       type: 'line',
       data: {
         labels,
         datasets: [{
           data: values,
-          borderColor: '#3B82F6',
-          backgroundColor: 'rgba(59,130,246,0.08)',
-          fill: true,
-          tension: 0.35,
-          pointRadius: values.length > 30 ? 0 : 4,
-          pointHoverRadius: 6,
-          pointBackgroundColor: '#3B82F6',
-          borderWidth: 2.5,
+          borderColor: '#0064E0',
+          backgroundColor: 'transparent',
+          borderWidth: 1.5,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          pointHoverBackgroundColor: '#0064E0',
+          tension: 0.3,
+          fill: false,
         }]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: {
-          callbacks: { label: ctx => ` ${ctx.parsed.y.toLocaleString()} visitors` }
-        }},
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#202223',
+            titleColor: '#fff',
+            bodyColor: '#fff',
+            padding: 10,
+            cornerRadius: 8,
+            titleFont: { size: 12, weight: '400' },
+            bodyFont: { size: 13, weight: '600' },
+            displayColors: false,
+            callbacks: { label: ctx => ctx.parsed.y.toLocaleString() + ' visitors' }
+          }
+        },
         scales: {
-          x: { grid: { display: false }, ticks: { maxTicksLimit: 7, font: { size: 11 }, color: '#94A3B8' } },
-          y: { beginAtZero: true, grid: { color: '#F1F5F9' }, ticks: { font: { size: 11 }, color: '#94A3B8' } }
-        }
+          x: {
+            grid: { display: false },
+            border: { display: false },
+            ticks: { maxTicksLimit: 8, font: { size: 12 }, color: '#8c9196', padding: 8 },
+          },
+          y: {
+            beginAtZero: true,
+            grid: { color: '#f0f0f0', lineWidth: 1 },
+            border: { display: false },
+            ticks: {
+              font: { size: 12 }, color: '#8c9196', padding: 8,
+              callback: function(val) { return val >= 1000 ? (val / 1000).toFixed(val % 1000 === 0 ? 0 : 1) + 'K' : val; },
+            },
+          }
+        },
+        interaction: { mode: 'index', intersect: false },
       }
     });
   }
 
-  document.querySelectorAll('.cd-tab').forEach(tab => tab.addEventListener('click', () => {
-    document.querySelectorAll('.cd-tab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    renderChart(parseInt(tab.dataset.range));
+  document.querySelectorAll('.sp-range-btn[data-range]').forEach(btn => btn.addEventListener('click', () => {
+    document.querySelectorAll('.sp-range-btn[data-range]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    drawChart(parseInt(btn.dataset.range));
   }));
 
-  requestAnimationFrame(() => renderChart(30));
+  requestAnimationFrame(() => drawChart(30));
 }
 
 // ── Shared detail renderer ─────────────────────────────────────
