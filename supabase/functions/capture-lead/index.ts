@@ -48,6 +48,13 @@ function sanitize(val: unknown): string | null {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  try { return await handlePost(req); } catch (e) {
+    console.error('capture-lead crashed:', e);
+    return json({ error: 'Internal error: ' + (e?.message || String(e)) }, 500);
+  }
+});
+
+async function handlePost(req: Request) {
 
   // Rate limit by IP
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
@@ -111,14 +118,15 @@ Deno.serve(async (req) => {
 
   // Create in-app notification
   const leadLabel = name || email || phone || 'Someone';
-  await adminClient.from('notifications').insert({
+  const { error: notifErr } = await adminClient.from('notifications').insert({
     client_id: clientId,
     type: 'new_lead',
     title: 'New lead: ' + leadLabel,
     body: message ? message.slice(0, 120) : 'New form submission from your website',
     read: false,
     link: '#leads',
-  }).catch(() => {});
+  });
+  if (notifErr) console.error('Notification insert failed:', notifErr);
 
   // Fire email notification asynchronously (don't block response)
   const RESEND_KEY = Deno.env.get('RESEND_API_KEY');
@@ -149,4 +157,4 @@ Deno.serve(async (req) => {
 
   console.log(`Lead captured for client ${client.name} (${clientId}): ${email || phone || name}`);
   return json({ ok: true });
-});
+}

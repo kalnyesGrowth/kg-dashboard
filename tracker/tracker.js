@@ -86,13 +86,13 @@
     var fields = form.querySelectorAll('input, textarea, select');
     for (var i = 0; i < fields.length; i++) {
       var f = fields[i];
-      var name = (f.name || f.id || f.type || '').toLowerCase();
+      var hint = (f.name || f.id || f.placeholder || f.type || '').toLowerCase();
       var val  = (f.value || '').trim();
       if (!val || f.type === 'hidden' || f.type === 'submit' || f.type === 'button') continue;
-      if (name.indexOf('name') !== -1 || name.indexOf('full') !== -1)  data.name  = data.name  || val;
-      if (name.indexOf('email') !== -1 || f.type === 'email')          data.email = data.email || val;
-      if (name.indexOf('phone') !== -1 || name.indexOf('tel') !== -1 || f.type === 'tel') data.phone = data.phone || val;
-      if (name.indexOf('message') !== -1 || name.indexOf('comment') !== -1 || name.indexOf('note') !== -1 || f.tagName === 'TEXTAREA') data.message = data.message || val;
+      if (hint.indexOf('name') !== -1 || hint.indexOf('full') !== -1)  data.name  = data.name  || val;
+      if (hint.indexOf('email') !== -1 || f.type === 'email')          data.email = data.email || val;
+      if (hint.indexOf('phone') !== -1 || hint.indexOf('tel') !== -1 || f.type === 'tel') data.phone = data.phone || val;
+      if (hint.indexOf('message') !== -1 || hint.indexOf('comment') !== -1 || hint.indexOf('note') !== -1 || f.tagName === 'TEXTAREA') data.message = data.message || val;
     }
     return data;
   }
