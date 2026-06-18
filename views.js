@@ -657,26 +657,45 @@ export async function clientDetailView(app, clientId) {
   renderDetail(app, client, true);
 }
 
-// ── Shopify "cha-ching" notification sound (synthesized) ──────
+// ── Cash register "cha-ching" notification sound (LOUD) ───────
 let _chachingCtx = null;
 function playChaChing() {
   try {
     const ctx = _chachingCtx || (_chachingCtx = new (window.AudioContext || window.webkitAudioContext)());
+    if (ctx.state === 'suspended') ctx.resume();
     const now = ctx.currentTime;
-    function tone(freq, start, dur, gain) {
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(1.0, now);
+    master.connect(ctx.destination);
+    function tone(freq, start, dur, gain, type) {
       const osc = ctx.createOscillator();
       const g = ctx.createGain();
-      osc.type = 'sine';
+      osc.type = type || 'sine';
       osc.frequency.setValueAtTime(freq, now + start);
       g.gain.setValueAtTime(gain, now + start);
       g.gain.exponentialRampToValueAtTime(0.001, now + start + dur);
-      osc.connect(g).connect(ctx.destination);
+      osc.connect(g).connect(master);
       osc.start(now + start);
       osc.stop(now + start + dur);
     }
-    tone(1200, 0, 0.15, 0.3);
-    tone(1600, 0.08, 0.15, 0.3);
-    tone(2000, 0.16, 0.25, 0.25);
+    tone(1200, 0, 0.12, 0.8, 'square');
+    tone(1600, 0.06, 0.12, 0.8, 'square');
+    tone(2400, 0.12, 0.2, 0.7, 'sine');
+    tone(3200, 0.18, 0.3, 0.6, 'sine');
+    tone(1200, 0.45, 0.12, 0.8, 'square');
+    tone(1600, 0.51, 0.12, 0.8, 'square');
+    tone(2400, 0.57, 0.2, 0.7, 'sine');
+    tone(3200, 0.63, 0.3, 0.6, 'sine');
+    const noise = ctx.createBufferSource();
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.08, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * 0.3;
+    noise.buffer = buf;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.5, now);
+    ng.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+    noise.connect(ng).connect(master);
+    noise.start(now);
   } catch (_) {}
 }
 

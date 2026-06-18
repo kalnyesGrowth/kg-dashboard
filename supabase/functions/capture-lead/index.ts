@@ -218,42 +218,31 @@ async function sendWebPush(
   const url = new URL(subscription.endpoint);
   const audience = `${url.protocol}//${url.host}`;
 
-  // Create VAPID JWT
-  const header = base64url(JSON.stringify({ typ: 'JWT', alg: 'ES256' }));
-  const now = Math.floor(Date.now() / 1000);
-  const claims = base64url(JSON.stringify({
-    aud: audience,
-    exp: now + 43200,
-    sub: 'mailto:info@kalnyesgrowth.com',
-  }));
-  const unsigned = `${header}.${claims}`;
+  const pubBytes = b64decode(vapidPublicKey);
+  const privBytes = b64decode(vapidPrivateKey);
+  const x = b64encode(pubBytes.slice(1, 33));
+  const y = b64encode(pubBytes.slice(33, 65));
+  const d = b64encode(privBytes);
 
-  const privateKeyBytes = base64urlDecode(vapidPrivateKey);
-  const key = await crypto.subtle.importKey(
+  const signingKey = await crypto.subtle.importKey(
     'jwk',
-    { kty: 'EC', crv: 'P-256', d: base64urlEncode(privateKeyBytes), x: '', y: '' },
+    { kty: 'EC', crv: 'P-256', x, y, d },
     { name: 'ECDSA', namedCurve: 'P-256' },
     false,
     ['sign'],
-  ).catch(async () => {
-    // Fallback: import as raw pkcs8
-    const pkcs8 = buildPkcs8(privateKeyBytes, base64urlDecode(vapidPublicKey));
-    return crypto.subtle.importKey('pkcs8', pkcs8, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
-  });
-
-  const sig = await crypto.subtle.sign(
-    { name: 'ECDSA', hash: 'SHA-256' },
-    key,
-    new TextEncoder().encode(unsigned),
   );
-  const jwt = `${unsigned}.${base64urlEncode(new Uint8Array(sig))}`;
 
-  // Encrypt payload using WebPush (aes128gcm)
-  const encrypted = await encryptPayload(
-    payload,
-    base64urlDecode(subscription.keys.p256dh),
-    base64urlDecode(subscription.keys.auth),
-  );
+  const header = b64str(JSON.stringify({ typ: 'JWT', alg: 'ES256' }));
+  const now = Math.floor(Date.now() / 1000);
+  const claims = b64str(JSON.stringify({ aud: audience, exp: now + 43200, sub: 'mailto:info@kalnyesgrowth.com' }));
+  const unsigned = `${header}.${claims}`;
+
+  const sig = new Uint8Array(await crypto.subtle.sign(
+    { name: 'ECDSA', hash: 'SHA-256' }, signingKey, new TextEncoder().encode(unsigned),
+  ));
+  const jwt = `${unsigned}.${b64encode(sig)}`;
+
+  const encrypted = await encryptPayload(payload, b64decode(subscription.keys.p256dh), b64decode(subscription.keys.auth));
 
   const resp = await fetch(subscription.endpoint, {
     method: 'POST',
@@ -268,117 +257,71 @@ async function sendWebPush(
   });
 
   if (!resp.ok) {
-    const err: any = new Error(`Push failed: ${resp.status}`);
+    const body = await resp.text().catch(() => '');
+    const err: any = new Error(`Push failed: ${resp.status} ${body}`);
     err.status = resp.status;
     throw err;
   }
 }
 
-async function encryptPayload(
-  payload: string,
-  clientPublicKey: Uint8Array,
-  clientAuth: Uint8Array,
-): Promise<Uint8Array> {
+async function encryptPayload(payload: string, clientPub: Uint8Array, clientAuth: Uint8Array): Promise<Uint8Array> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
 
-  const localKeyPair = await crypto.subtle.generateKey(
-    { name: 'ECDH', namedCurve: 'P-256' },
-    true,
-    ['deriveBits'],
-  );
+  const localKP = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const clientKey = await crypto.subtle.importKey('raw', clientPub, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
 
-  const clientKey = await crypto.subtle.importKey(
-    'raw', clientPublicKey, { name: 'ECDH', namedCurve: 'P-256' }, false, [],
-  );
+  const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: clientKey }, localKP.privateKey, 256));
+  const localPub = new Uint8Array(await crypto.subtle.exportKey('raw', localKP.publicKey));
 
-  const sharedSecret = new Uint8Array(
-    await crypto.subtle.deriveBits(
-      { name: 'ECDH', public: clientKey },
-      localKeyPair.privateKey,
-      256,
-    ),
-  );
+  const authInfo = concat(new TextEncoder().encode('WebPush: info\0'), clientPub, localPub);
+  const ikm = await hkdf(clientAuth, shared, authInfo, 32);
 
-  const localPublicKeyRaw = new Uint8Array(
-    await crypto.subtle.exportKey('raw', localKeyPair.publicKey),
-  );
+  const cek = await hkdf(salt, ikm, new TextEncoder().encode('Content-Encoding: aes128gcm\0'), 16);
+  const nonce = await hkdf(salt, ikm, new TextEncoder().encode('Content-Encoding: nonce\0'), 12);
 
-  // IKM = HKDF(auth, shared_secret, "WebPush: info\0" || client_pub || server_pub, 32)
-  const authInfo = concatBytes(
-    new TextEncoder().encode('WebPush: info\0'),
-    clientPublicKey,
-    localPublicKeyRaw,
-  );
-  const ikm = await hkdf(clientAuth, sharedSecret, authInfo, 32);
+  const plain = new TextEncoder().encode(payload);
+  const padded = new Uint8Array(plain.length + 1);
+  padded.set(plain);
+  padded[plain.length] = 2;
 
-  // PRK for content encryption
-  const contentInfo = new TextEncoder().encode('Content-Encoding: aes128gcm\0');
-  const contentKey = await hkdf(salt, ikm, contentInfo, 16);
-  const nonceInfo = new TextEncoder().encode('Content-Encoding: nonce\0');
-  const nonce = await hkdf(salt, ikm, nonceInfo, 12);
+  const aesKey = await crypto.subtle.importKey('raw', cek, 'AES-GCM', false, ['encrypt']);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, aesKey, padded));
 
-  // Pad payload (add \x02 delimiter)
-  const payloadBytes = new TextEncoder().encode(payload);
-  const padded = new Uint8Array(payloadBytes.length + 1);
-  padded.set(payloadBytes);
-  padded[payloadBytes.length] = 2;
-
-  const aesKey = await crypto.subtle.importKey('raw', contentKey, 'AES-GCM', false, ['encrypt']);
-  const ciphertext = new Uint8Array(
-    await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, aesKey, padded),
-  );
-
-  // Build aes128gcm header: salt(16) + rs(4) + idlen(1) + keyid(65) + ciphertext
   const rs = new Uint8Array(4);
-  new DataView(rs.buffer).setUint32(0, padded.length + 16 + 1);
-  const header = concatBytes(salt, rs, new Uint8Array([65]), localPublicKeyRaw);
-  return concatBytes(header, ciphertext);
+  new DataView(rs.buffer).setUint32(0, 4096);
+  return concat(salt, rs, new Uint8Array([65]), localPub, ct);
 }
 
-async function hkdf(salt: Uint8Array, ikm: Uint8Array, info: Uint8Array, length: number): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey('raw', salt.length ? salt : new Uint8Array(32), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const prk = new Uint8Array(await crypto.subtle.sign('HMAC', key, ikm));
-  const prkKey = await crypto.subtle.importKey('raw', prk, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const infoWithCounter = concatBytes(info, new Uint8Array([1]));
-  const okm = new Uint8Array(await crypto.subtle.sign('HMAC', prkKey, infoWithCounter));
-  return okm.slice(0, length);
+async function hkdf(salt: Uint8Array, ikm: Uint8Array, info: Uint8Array, len: number): Promise<Uint8Array> {
+  const k1 = await crypto.subtle.importKey('raw', salt.length ? salt : new Uint8Array(32), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const prk = new Uint8Array(await crypto.subtle.sign('HMAC', k1, ikm));
+  const k2 = await crypto.subtle.importKey('raw', prk, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const okm = new Uint8Array(await crypto.subtle.sign('HMAC', k2, concat(info, new Uint8Array([1]))));
+  return okm.slice(0, len);
 }
 
-function concatBytes(...arrays: Uint8Array[]): Uint8Array {
-  const len = arrays.reduce((s, a) => s + a.length, 0);
-  const result = new Uint8Array(len);
-  let offset = 0;
-  for (const a of arrays) { result.set(a, offset); offset += a.length; }
-  return result;
+function concat(...a: Uint8Array[]): Uint8Array {
+  const r = new Uint8Array(a.reduce((s, v) => s + v.length, 0));
+  let o = 0;
+  for (const v of a) { r.set(v, o); o += v.length; }
+  return r;
 }
 
-function base64url(str: string): string {
-  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+function b64str(s: string): string {
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function base64urlEncode(bytes: Uint8Array): string {
-  let binary = '';
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+function b64encode(bytes: Uint8Array): string {
+  let b = '';
+  for (const v of bytes) b += String.fromCharCode(v);
+  return btoa(b).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function base64urlDecode(str: string): Uint8Array {
-  const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
-  const pad = (4 - base64.length % 4) % 4;
-  const binary = atob(base64 + '='.repeat(pad));
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-function buildPkcs8(privateKeyBytes: Uint8Array, publicKeyBytes: Uint8Array): Uint8Array {
-  const pkcs8Header = new Uint8Array([
-    0x30, 0x81, 0x87, 0x02, 0x01, 0x00, 0x30, 0x13,
-    0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02,
-    0x01, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d,
-    0x03, 0x01, 0x07, 0x04, 0x6d, 0x30, 0x6b, 0x02,
-    0x01, 0x01, 0x04, 0x20,
-  ]);
-  const midSection = new Uint8Array([0xa1, 0x44, 0x03, 0x42, 0x00]);
-  return concatBytes(pkcs8Header, privateKeyBytes, midSection, publicKeyBytes);
+function b64decode(str: string): Uint8Array {
+  const s = str.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = (4 - s.length % 4) % 4;
+  const bin = atob(s + '='.repeat(pad));
+  const r = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) r[i] = bin.charCodeAt(i);
+  return r;
 }

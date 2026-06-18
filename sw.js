@@ -1,5 +1,5 @@
 const DEV = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
-const CACHE = 'kg-dash-v14';
+const CACHE = 'kg-dash-v15';
 const ASSETS = [
   '/',
   '/index.html',
@@ -39,9 +39,10 @@ self.addEventListener('push', e => {
       body: data.body,
       icon: '/icons/icon-192.png',
       badge: '/icons/icon-192.png',
-      vibrate: [200, 100, 200, 100, 200],
+      vibrate: [300, 100, 300, 100, 300, 100, 500],
       tag: 'new-lead',
       renotify: true,
+      requireInteraction: true,
       data: { url: data.url }
     })
   );
