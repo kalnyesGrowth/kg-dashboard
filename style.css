@@ -1468,6 +1468,22 @@ html, body {
   color: var(--text-secondary);
 }
 
+/* ── Agency Site Section (ag-*) ─────────────────────────────────── */
+.ag-site-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.ag-site-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.ag-site-stat { background: var(--bg-secondary); border-radius: 10px; padding: 16px; }
+.ag-site-num { font-size: 1.6rem; font-weight: 800; color: var(--text-primary); letter-spacing: -0.02em; }
+.ag-site-lbl { font-size: 0.75rem; color: var(--text-secondary); margin-top: 2px; }
+.ag-email-list { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
+.ag-email-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border-radius: 6px; transition: background 0.15s; }
+.ag-email-row:hover { background: var(--bg-secondary); }
+.ag-email-addr { font-size: 0.82rem; font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-email-date { font-size: 0.72rem; color: var(--text-secondary); flex-shrink: 0; margin-left: 12px; }
+@media (max-width: 768px) {
+  .ag-site-grid { grid-template-columns: 1fr; }
+  .ag-site-stats { grid-template-columns: 1fr 1fr; }
+}
+
 /* ── Client Dashboard (cd-*) ───────────────────────────────────── */
 .cd-page { padding: 32px 36px; max-width: 1200px; }
 .cd-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }

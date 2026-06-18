@@ -409,23 +409,32 @@ export function loginView(app) {
 }
 
 // ── Clients overview ───────────────────────────────────────────
+const AGENCY_CLIENT_ID = '992d9253-6123-4d51-91b9-007efd8ad03c';
+
 export async function clientsView(app) {
   destroyChart();
   app.innerHTML = buildLayout({ active:'clients', title:'Clients', content: skeletonClients() });
   wireLayout(app);
 
-  let clients = MOCK_CLIENTS;
+  let allClients = MOCK_CLIENTS;
   let summary = getAgencySummary();
+  let agencyEmails = [];
   try {
     const [sbClients, sbSum] = await Promise.all([DB.fetchClientsWithMetrics(), DB.fetchAgencySummary()]);
-    if (sbClients.length > 0) { clients = sbClients; summary = sbSum; }
+    if (sbClients.length > 0) { allClients = sbClients; summary = sbSum; }
+    agencyEmails = await DB.fetchAllSubscribers(AGENCY_CLIENT_ID).catch(() => []);
   } catch (_) {}
+
+  const agency  = allClients.find(c => c.id === AGENCY_CLIENT_ID);
+  const clients = allClients.filter(c => c.id !== AGENCY_CLIENT_ID);
 
   const mc = document.querySelector('.main-content');
   if (!mc) return;
 
   const totalSessions = clients.reduce((acc, c) => acc + c.metrics.sessions.month, 0);
   const totalLeads    = clients.reduce((acc, c) => acc + c.metrics.leads.month + c.metrics.emails.month, 0);
+
+  const am = agency?.metrics || { sessions:{today:0,week:0,month:0,all:0}, leads:{today:0,week:0,month:0,all:0}, emails:{today:0,week:0,month:0,all:0}, revenue:{today:0,week:0,month:0,all:0} };
 
   mc.innerHTML = `
     <div class="page-topbar">
@@ -450,7 +459,51 @@ export async function clientsView(app) {
       </div>
       <div class="stat-cell">
         <div class="stat-label">Clients</div>
-        <div class="stat-value">${summary.activeClients ?? clients.length}</div>
+        <div class="stat-value">${clients.length}</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Your website &middot; kalnyesgrowth.com</div>
+      <div class="card" style="padding:20px">
+        <div class="ag-site-grid">
+          <div class="ag-site-stats">
+            <div class="ag-site-stat">
+              <div class="ag-site-num">${num(am.sessions.month)}</div>
+              <div class="ag-site-lbl">Visitors this month</div>
+            </div>
+            <div class="ag-site-stat">
+              <div class="ag-site-num">${num(am.sessions.week)}</div>
+              <div class="ag-site-lbl">This week</div>
+            </div>
+            <div class="ag-site-stat">
+              <div class="ag-site-num">${num(am.leads.month)}</div>
+              <div class="ag-site-lbl">Leads</div>
+            </div>
+            <div class="ag-site-stat">
+              <div class="ag-site-num">${num(am.sessions.today)}</div>
+              <div class="ag-site-lbl">Today</div>
+            </div>
+          </div>
+          <div class="ag-site-emails">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <div style="font-size:0.82rem;font-weight:600;color:var(--text-primary)">Captured Emails (${agencyEmails.length})</div>
+            </div>
+            ${agencyEmails.length ? `
+            <div class="ag-email-list">
+              ${agencyEmails.slice(0, 6).map(s => `
+              <div class="ag-email-row">
+                <div class="ag-email-addr">${esc(s.email)}</div>
+                <div class="ag-email-date">${esc(s.date || s.source || '')}</div>
+              </div>`).join('')}
+              ${agencyEmails.length > 6 ? `<div style="font-size:0.75rem;color:var(--text-secondary);text-align:center;padding:6px 0">+${agencyEmails.length - 6} more</div>` : ''}
+            </div>` : `
+            <div style="text-align:center;padding:20px 0;color:var(--text-secondary);font-size:0.82rem">No emails captured yet</div>`}
+          </div>
+        </div>
+        <div style="margin-top:14px">
+          <a href="#client/${AGENCY_CLIENT_ID}" class="btn-pill-outline" style="font-size:0.75rem;padding:7px 16px;text-decoration:none">View full analytics</a>
+        </div>
       </div>
     </div>
 
