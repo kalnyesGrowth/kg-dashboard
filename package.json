@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "KalnyesGrowth Agency Dashboard",
   "scripts": {
-    "build": "mkdir -p www && cp -r index.html app.js views.js data.js utils.js style.css manifest.json sw.js icons supabase www/",
+    "build": "mkdir -p www && cp -r index.html app.js views.js data.js utils.js style.css manifest.json sw.js icons supabase tracker www/",
     "cap:sync": "npm run build && npx cap sync"
   },
   "repository": {
