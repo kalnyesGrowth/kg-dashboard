@@ -60,13 +60,15 @@
     });
 
     if (navigator.sendBeacon) {
-      navigator.sendBeacon(ENDPOINT, new Blob([body], { type: 'application/json' }));
+      navigator.sendBeacon(ENDPOINT, new Blob([body], { type: 'text/plain' }));
     } else {
       fetch(ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain' },
         body: body,
         keepalive: true,
+        credentials: 'omit',
+        mode: 'cors',
       }).catch(function () {});
     }
   }
@@ -108,13 +110,15 @@
     });
 
     if (navigator.sendBeacon) {
-      navigator.sendBeacon(LEAD_ENDPOINT, new Blob([body], { type: 'application/json' }));
+      navigator.sendBeacon(LEAD_ENDPOINT, new Blob([body], { type: 'text/plain' }));
     } else {
       fetch(LEAD_ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain' },
         body: body,
         keepalive: true,
+        credentials: 'omit',
+        mode: 'cors',
       }).catch(function () {});
     }
   }
