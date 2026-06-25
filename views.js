@@ -846,6 +846,10 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
     <div class="sp-page">
       <div class="sp-header">
         <h1 class="sp-title">Overview</h1>
+        <div style="display:flex;align-items:center;gap:8px;">
+        <button class="sp-refresh-btn" id="sp-refresh-btn" title="Refresh data">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+        </button>
         <div class="sp-date-dropdown">
           <button class="sp-date-trigger" id="sp-date-trigger">
             <span id="sp-date-label">Last 30 days</span>
@@ -867,6 +871,7 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
               <button class="sp-date-apply" id="sp-date-apply">Apply</button>
             </div>
           </div>
+        </div>
         </div>
       </div>
 
@@ -1175,6 +1180,10 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
     requestAnimationFrame(() => drawChart(currentRange));
     document.getElementById('sp-invite-btn')?.addEventListener('click', wireInviteModal);
     document.getElementById('sp-request-btn')?.addEventListener('click', () => showTicketModal(client));
+    document.getElementById('sp-refresh-btn')?.addEventListener('click', () => {
+      document.getElementById('sp-refresh-btn')?.classList.add('spinning');
+      clientSelfView(app, client.id);
+    });
   }
 
   document.querySelectorAll('[data-nav]').forEach(btn => btn.addEventListener('click', () => {
@@ -1392,6 +1401,13 @@ function renderClientDashboard(app, client, liveData, loginViewFn) {
     });
   }
   wireDateDropdown();
+
+  // Refresh button
+  document.getElementById('sp-refresh-btn')?.addEventListener('click', () => {
+    const btn = document.getElementById('sp-refresh-btn');
+    btn.classList.add('spinning');
+    clientSelfView(app, client.id);
+  });
 
   requestAnimationFrame(() => drawChart(30));
 }
