@@ -22,6 +22,17 @@ export async function getAuthUser() {
   return data.user;
 }
 
+// Defense-in-depth: ensure non-agency callers always provide a clientId.
+// RLS is the primary enforcement, this is the application-level guard.
+async function assertClientScope(clientId) {
+  if (clientId) return;
+  const { data } = await supabase.auth.getSession();
+  const role = data?.session?.user?.app_metadata?.role;
+  if (role && role !== 'agency') {
+    throw new Error('clientId is required for non-agency users');
+  }
+}
+
 // ── Clients ────────────────────────────────────────────────────
 export async function fetchClients() {
   const { data, error } = await supabase
@@ -347,6 +358,7 @@ export async function deleteClient(clientId) {
 
 // ── Leads ─────────────────────────────────────────────────────
 export async function fetchLeads(clientId, filters = {}) {
+  await assertClientScope(clientId);
   let query = supabase
     .from('leads')
     .select('*')
@@ -390,6 +402,7 @@ export async function addLeadNote(leadId, noteText) {
 }
 
 export async function countUnreadLeads(clientId) {
+  await assertClientScope(clientId);
   let query = supabase
     .from('leads')
     .select('id', { count: 'exact', head: true })
@@ -407,6 +420,7 @@ export async function deleteLead(leadId) {
 
 // ── Contacts ──────────────────────────────────────────────────
 export async function fetchContacts(clientId, filters = {}) {
+  await assertClientScope(clientId);
   let query = supabase
     .from('contacts')
     .select('*')
@@ -468,6 +482,7 @@ export async function bulkInsertContacts(contacts) {
 
 // ── Notifications ─────────────────────────────────────────────
 export async function fetchNotifications(clientId, limit = 20) {
+  await assertClientScope(clientId);
   let query = supabase
     .from('notifications')
     .select('*')
@@ -482,6 +497,7 @@ export async function fetchNotifications(clientId, limit = 20) {
 }
 
 export async function countUnreadNotifications(clientId) {
+  await assertClientScope(clientId);
   let query = supabase
     .from('notifications')
     .select('id', { count: 'exact', head: true })
@@ -501,6 +517,7 @@ export async function markNotificationRead(notifId) {
 }
 
 export async function markAllNotificationsRead(clientId) {
+  await assertClientScope(clientId);
   let query = supabase
     .from('notifications')
     .update({ read: true })
@@ -512,6 +529,7 @@ export async function markAllNotificationsRead(clientId) {
 
 // ── Tickets ───────────────────────────────────────────────────
 export async function fetchTickets(clientId, filters = {}) {
+  await assertClientScope(clientId);
   let query = supabase
     .from('tickets')
     .select('*')
@@ -548,6 +566,7 @@ export async function updateTicket(ticketId, updates) {
 
 // ── Sequences ─────────────────────────────────────────────────
 export async function fetchSequences(clientId) {
+  await assertClientScope(clientId);
   let query = supabase.from('sequences').select('*').order('created_at', { ascending: false });
   if (clientId) query = query.eq('client_id', clientId);
   const { data, error } = await query;
@@ -606,6 +625,7 @@ export async function updateEnrollment(enrollmentId, updates) {
 
 // ── Reviews ───────────────────────────────────────────────────
 export async function fetchReviews(clientId) {
+  await assertClientScope(clientId);
   let query = supabase.from('reviews').select('*').order('review_date', { ascending: false });
   if (clientId) query = query.eq('client_id', clientId);
   const { data, error } = await query;
@@ -628,6 +648,7 @@ export async function fetchReviewStats(clientId) {
 
 // ── Bookings ──────────────────────────────────────────────────
 export async function fetchBookings(clientId) {
+  await assertClientScope(clientId);
   let query = supabase.from('bookings').select('*').order('date', { ascending: true });
   if (clientId) query = query.eq('client_id', clientId);
   const { data, error } = await query;

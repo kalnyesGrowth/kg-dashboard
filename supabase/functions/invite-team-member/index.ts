@@ -39,8 +39,8 @@ Deno.serve(async (req) => {
   const { data: { user: caller }, error: authErr } = await admin.auth.getUser(token);
   if (authErr || !caller) return json({ error: 'Invalid token' }, 401);
 
-  const clientId = caller.user_metadata?.client_id;
-  const callerRole = caller.user_metadata?.role;
+  const clientId = caller.app_metadata?.client_id;
+  const callerRole = caller.app_metadata?.role;
 
   // Agency users can also use this if they pass a clientId in query/body
   if (!clientId && callerRole !== 'agency') {
@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
     if (listErr) return json({ error: listErr.message }, 500);
 
     const team = (users || [])
-      .filter(u => u.user_metadata?.client_id === targetClientId)
+      .filter(u => u.app_metadata?.client_id === targetClientId)
       .map(u => ({
         id: u.id,
         email: u.email,
@@ -93,9 +93,11 @@ Deno.serve(async (req) => {
       email,
       password,
       email_confirm: true,
-      user_metadata: {
+      app_metadata: {
         role: 'client',
         client_id: targetClientId,
+      },
+      user_metadata: {
         name: name || email.split('@')[0],
       },
     });

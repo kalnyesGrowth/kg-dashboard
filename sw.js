@@ -1,11 +1,10 @@
 const DEV = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
-const CACHE = 'kg-dash-v20';
+const CACHE = 'kg-dash-v21';
 const ASSETS = [
   '/',
   '/index.html',
   '/style.css',
   '/app.js',
-  '/data.js',
   '/views.js',
   '/utils.js',
   '/manifest.json',

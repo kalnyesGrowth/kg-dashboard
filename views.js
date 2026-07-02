@@ -1,9 +1,6 @@
 // ── Views ──────────────────────────────────────────────────────
-import { MOCK_CLIENTS, getClient, getAgencySummary, CLIENT_CREDS } from './data.js';
 import { checkLogin, clearSession, esc } from './utils.js';
 import * as DB from './supabase/db.js';
-
-const CREDS_MAP = CLIENT_CREDS;
 
 const PRESET_COLORS = ['#7C3AED','#0064E0','#0369A1','#0F766E','#059669','#B45309','#BE185D','#DC2626'];
 
@@ -522,12 +519,13 @@ export async function clientsView(app) {
   app.innerHTML = buildLayout({ active:'clients', title:'Clients', content: skeletonClients() });
   wireLayout(app);
 
-  let allClients = MOCK_CLIENTS;
-  let summary = getAgencySummary();
+  let allClients = [];
+  let summary = { sessions: 0, leads: 0, emails: 0, revenue: 0 };
   let agencyEmails = [];
   try {
     const [sbClients, sbSum] = await Promise.all([DB.fetchClientsWithMetrics(), DB.fetchAgencySummary()]);
-    if (sbClients.length > 0) { allClients = sbClients; summary = sbSum; }
+    allClients = sbClients || [];
+    summary = sbSum || summary;
     agencyEmails = await DB.fetchAllSubscribers(AGENCY_CLIENT_ID).catch(() => []);
   } catch (_) {}
 
@@ -652,14 +650,11 @@ export async function clientsView(app) {
 
 // ── Agency: Client detail ──────────────────────────────────────
 export async function clientDetailView(app, clientId) {
-  let client = getClient(clientId);
-  if (!client) {
-    // Supabase UUID client — fetch it
-    try {
-      const sbClient = await DB.fetchClient(clientId);
-      if (sbClient) client = normalizeClient(sbClient);
-    } catch (_) {}
-  }
+  let client = null;
+  try {
+    const sbClient = await DB.fetchClient(clientId);
+    if (sbClient) client = normalizeClient(sbClient);
+  } catch (_) {}
   if (!client) { location.hash = '#clients'; return; }
   renderDetail(app, client, true);
 }
@@ -728,13 +723,11 @@ export function playChaChing() {
 
 // ── Client: Self view ──────────────────────────────────────────
 export async function clientSelfView(app, clientId) {
-  let client = getClient(clientId);
-  if (!client) {
-    try {
-      const sbClient = await DB.fetchClient(clientId);
-      if (sbClient) client = normalizeClient(sbClient);
-    } catch (_) {}
-  }
+  let client = null;
+  try {
+    const sbClient = await DB.fetchClient(clientId);
+    if (sbClient) client = normalizeClient(sbClient);
+  } catch (_) {}
   if (!client) { clearSession().then(() => loginView(app)); return; }
 
   renderClientDashboard(app, client, null, loginView);
@@ -1696,7 +1689,7 @@ export async function reportsView(app) {
   try {
     clients = await DB.fetchClientsWithMetrics();
   } catch (_) {
-    clients = MOCK_CLIENTS;
+    clients = [];
   }
 
   function buildContent() {
@@ -1824,25 +1817,17 @@ export async function settingsView(app) {
   });
   wireLayout(app);
 
-  let clients, isReal = true;
+  let clients;
   try {
-    const sbClients = await DB.fetchClients();
-    if (sbClients.length > 0) {
-      clients = sbClients;
-    } else {
-      clients = MOCK_CLIENTS;
-      isReal  = false;
-    }
+    clients = await DB.fetchClients();
   } catch (_) {
-    clients = MOCK_CLIENTS;
-    isReal  = false;
+    clients = [];
   }
 
   function clientRows() {
     return clients.map(c => {
-      const creds = isReal ? null : CREDS_MAP[c.id];
-      const email = creds ? creds.email : (c.login_email || '');
-      const pw    = creds ? creds.password : '';
+      const email = c.login_email || '';
+      const pw    = '';
       return `
         <div class="table-row">
           <div class="client-avatar" style="background:${esc(c.color)};width:32px;height:32px;border-radius:8px;font-size:0.65rem;flex-shrink:0">${esc(c.initials)}</div>

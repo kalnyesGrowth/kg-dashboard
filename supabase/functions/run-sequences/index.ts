@@ -46,6 +46,18 @@ Deno.serve(async (req) => {
   const RESEND_KEY = Deno.env.get('RESEND_API_KEY');
   if (!RESEND_KEY) return json({ error: 'Email not configured' }, 503);
 
+  const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const FUNC_URL = Deno.env.get('SUPABASE_URL')!.replace('.supabase.co', '.supabase.co/functions/v1');
+
+  async function unsubToken(id: string): Promise<string> {
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw', enc.encode(SERVICE_KEY), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+    );
+    const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`contact:${id}`));
+    return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
   // Find all active enrollments with next_send_at in the past
   const now = new Date().toISOString();
   const { data: due, error: fetchErr } = await adminClient
@@ -70,6 +82,12 @@ Deno.serve(async (req) => {
     const contact = enrollment.contacts;
 
     if (!seq || !contact || seq.status !== 'active') continue;
+    if (contact.unsubscribed) {
+      await adminClient.from('sequence_enrollments')
+        .update({ status: 'cancelled' })
+        .eq('id', enrollment.id);
+      continue;
+    }
 
     const steps = Array.isArray(seq.steps) ? seq.steps : [];
     const stepIdx = enrollment.current_step;
@@ -105,6 +123,12 @@ Deno.serve(async (req) => {
       .map((line: string) => `<p style="margin:0 0 12px">${line.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
       .join('');
 
+    const unsubUrl = `${FUNC_URL}/unsubscribe?type=contact&id=${contact.id}&token=${await unsubToken(contact.id)}`;
+    const footer = `<div style="margin-top:24px;padding:16px 0;font-size:11px;color:#999;text-align:center;border-top:1px solid #E5E7EB">
+      <p style="margin:0 0 4px">KalnyesGrowth, Stafford, VA 22554</p>
+      <p style="margin:0"><a href="${unsubUrl}" style="color:#999">Unsubscribe</a></p>
+    </div>`;
+
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -115,7 +139,11 @@ Deno.serve(async (req) => {
         from: `${client?.name || 'Kalnyesgrowth'} <noreply@kalnyesgrowth.com>`,
         to: [contact.email],
         subject,
-        html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#111">${htmlBody}</div>`,
+        html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#111">${htmlBody}${footer}</div>`,
+        headers: {
+          'List-Unsubscribe': `<${unsubUrl}>`,
+          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        },
       }),
     });
 

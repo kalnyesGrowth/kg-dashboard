@@ -41,6 +41,18 @@ Deno.serve(async (req) => {
   const RESEND_KEY = Deno.env.get('RESEND_API_KEY');
   if (!RESEND_KEY) return json({ error: 'Email not configured' }, 503);
 
+  const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const FUNC_URL = Deno.env.get('SUPABASE_URL')!.replace('.supabase.co', '.supabase.co/functions/v1');
+
+  async function unsubToken(type: string, id: string): Promise<string> {
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw', enc.encode(SERVICE_KEY), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+    );
+    const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${type}:${id}`));
+    return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
   const { data: clients } = await adminClient
     .from('clients')
     .select('id, name, notification_prefs')
@@ -58,7 +70,7 @@ Deno.serve(async (req) => {
 
   for (const client of clients) {
     const prefs = client.notification_prefs || {};
-    if (!prefs.weekly_report || !prefs.email) continue;
+    if (!prefs.monthly_report || !prefs.email) continue;
 
     // Count metrics for last month
     const since = firstOfLastMonth.toISOString();
@@ -77,7 +89,9 @@ Deno.serve(async (req) => {
     const pvCount = pageviews.count || 0;
     const eventCount = events.count || 0;
 
-    const html = `
+    const unsubUrl = `${FUNC_URL}/unsubscribe?type=report&id=${client.id}&token=${await unsubToken('report', client.id)}`;
+
+    const emailHtml = `
       <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#111">
         <div style="background:#1A1A1A;padding:28px 24px;border-radius:12px 12px 0 0">
           <div style="color:#fff;font-size:22px;font-weight:700">Monthly Report</div>
@@ -110,6 +124,10 @@ Deno.serve(async (req) => {
 
           <p style="margin-top:24px;font-size:12px;color:#999">You can also download a PDF report from your dashboard.</p>
         </div>
+        <div style="margin-top:24px;padding:16px 24px;font-size:11px;color:#999;text-align:center;border-top:1px solid #E5E7EB">
+          <p style="margin:0 0 4px">KalnyesGrowth, Stafford, VA 22554</p>
+          <p style="margin:0"><a href="${unsubUrl}" style="color:#999">Unsubscribe from monthly reports</a></p>
+        </div>
       </div>`;
 
     const res = await fetch('https://api.resend.com/emails', {
@@ -122,7 +140,11 @@ Deno.serve(async (req) => {
         from: 'Kalnyesgrowth <noreply@kalnyesgrowth.com>',
         to: [prefs.email],
         subject: `Your ${monthName} Report | ${client.name}`,
-        html,
+        html: emailHtml,
+        headers: {
+          'List-Unsubscribe': `<${unsubUrl}>`,
+          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        },
       }),
     });
 

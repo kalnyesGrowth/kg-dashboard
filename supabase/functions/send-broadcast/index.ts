@@ -43,8 +43,8 @@ Deno.serve(async (req) => {
   const { data: { user }, error: authErr } = await adminClient.auth.getUser(callerToken);
   if (authErr || !user) return json({ error: 'Unauthorized' }, 401);
 
-  const role     = user.user_metadata?.role;
-  const clientId = user.user_metadata?.client_id;
+  const role     = user.app_metadata?.role;
+  const clientId = user.app_metadata?.client_id;
 
   // ── 2. Parse body ─────────────────────────────────────────────
   let body: { clientId?: string; clientName?: string; recipients?: string[]; subject?: string; body?: string };
@@ -65,41 +65,83 @@ Deno.serve(async (req) => {
   const RESEND_KEY = Deno.env.get('RESEND_API_KEY');
   if (!RESEND_KEY) return json({ error: 'Email service not configured' }, 503);
 
+  const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const FUNC_URL = Deno.env.get('SUPABASE_URL')!.replace('.supabase.co', '.supabase.co/functions/v1');
+
+  async function unsubToken(id: string): Promise<string> {
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw', enc.encode(SERVICE_KEY), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+    );
+    const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`contact:${id}`));
+    return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // Look up contacts by email to get IDs (for unsubscribe links) and filter unsubscribed
+  const { data: contacts } = await adminClient.from('contacts')
+    .select('id, email, unsubscribed')
+    .eq('client_id', reqClientId)
+    .in('email', recipients);
+
+  const contactMap = new Map<string, { id: string; unsubscribed: boolean }>();
+  for (const c of contacts || []) {
+    contactMap.set(c.email, { id: c.id, unsubscribed: c.unsubscribed });
+  }
+
   const fromName  = clientName || 'Kalnyesgrowth';
-  const fromEmail = 'noreply@kalnyesgrowth.com'; // must be a verified Resend domain
+  const fromEmail = 'noreply@kalnyesgrowth.com';
 
-  // Resend supports up to 50 recipients per call — batch if needed
-  const BATCH = 50;
+  const htmlBody = msgBody
+    .split('\n')
+    .map(line => `<p style="margin:0 0 12px">${line.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>`)
+    .join('');
+
   let sent = 0;
+  let skipped = 0;
 
-  for (let i = 0; i < recipients.length; i += BATCH) {
-    const batch = recipients.slice(i, i + BATCH);
-    const htmlBody = msgBody
-      .split('\n')
-      .map(line => `<p style="margin:0 0 12px">${line.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>`)
-      .join('');
+  for (const email of recipients) {
+    const contact = contactMap.get(email);
+    if (contact?.unsubscribed) { skipped++; continue; }
+
+    let footer = `<div style="margin-top:24px;padding:16px 0;font-size:11px;color:#999;text-align:center;border-top:1px solid #E5E7EB">
+      <p style="margin:0 0 4px">KalnyesGrowth, Stafford, VA 22554</p>`;
+
+    let unsubUrl = '';
+    if (contact) {
+      unsubUrl = `${FUNC_URL}/unsubscribe?type=contact&id=${contact.id}&token=${await unsubToken(contact.id)}`;
+      footer += `<p style="margin:0"><a href="${unsubUrl}" style="color:#999">Unsubscribe</a></p>`;
+    }
+    footer += '</div>';
+
+    const emailPayload: Record<string, unknown> = {
+      from: `${fromName} <${fromEmail}>`,
+      to: [email],
+      subject,
+      html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#111">${htmlBody}${footer}</div>`,
+    };
+    if (unsubUrl) {
+      emailPayload.headers = {
+        'List-Unsubscribe': `<${unsubUrl}>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      };
+    }
 
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${RESEND_KEY}`,
-        'Content-Type':  'application/json',
+        'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        from:    `${fromName} <${fromEmail}>`,
-        to:      batch,
-        subject,
-        html:    `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#111">${htmlBody}</div>`,
-      }),
+      body: JSON.stringify(emailPayload),
     });
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      return json({ error: err.message || 'Resend API error' }, 502);
+    if (res.ok) {
+      sent++;
+    } else {
+      console.error(`Broadcast email failed for ${email}:`, await res.text());
     }
-    sent += batch.length;
   }
 
-  console.log(`Broadcast sent: ${sent} emails for client ${reqClientId}`);
-  return json({ sent });
+  console.log(`Broadcast sent: ${sent} emails, ${skipped} skipped (unsubscribed) for client ${reqClientId}`);
+  return json({ sent, skipped });
 });

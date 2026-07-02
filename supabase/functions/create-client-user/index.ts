@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
   if (authErr || !caller) {
     return json({ error: 'Unauthorized — invalid token' }, 401);
   }
-  if (caller.user_metadata?.role !== 'agency') {
+  if (caller.app_metadata?.role !== 'agency') {
     return json({ error: 'Forbidden — agency role required' }, 403);
   }
 
@@ -87,10 +87,12 @@ Deno.serve(async (req) => {
   const { data, error: createErr } = await adminClient.auth.admin.createUser({
     email,
     password,
-    email_confirm: true,          // skip email verification flow
-    user_metadata: {
+    email_confirm: true,
+    app_metadata: {
       role:      'client',
       client_id: clientId,
+    },
+    user_metadata: {
       name:      clientRow.name,
     },
   });
